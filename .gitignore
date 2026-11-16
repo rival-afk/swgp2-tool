@@ -1,0 +1,7 @@
+target/
+*.sav
+*.savbak
+*.bin
+Backups/
+.DS_Store
+Thumbs.db
