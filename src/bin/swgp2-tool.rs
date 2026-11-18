@@ -1,3 +1,5 @@
+// GUI-subsystem binary on Windows: no console window is spawned.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 //! swgp2-tool - all-in-one tool for Super Woden GP 2. No flags, just run it.
 //!
 //! Layout (7z-style): menu bar -> toolbar (Load/Reload/Save + quick actions)
