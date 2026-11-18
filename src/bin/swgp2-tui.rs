@@ -94,7 +94,7 @@ impl App {
 
     fn save_all(&mut self) {
         let Some(path) = self.save_path.clone() else { return };
-        match app::save_with_backup(&path, &self.dirty_edits()) {
+        match app::patch_save(&path, &self.dirty_edits()) {
             Ok(backup) => {
                 self.msg(format!("saved (backup: {})", backup.display()), Color::Green);
                 self.reload();

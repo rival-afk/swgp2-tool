@@ -79,7 +79,13 @@ pub fn backup_path(save_path: &Path) -> Result<PathBuf> {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "save".into());
     let stamp = chrono_stamp();
-    Ok(dir.join(format!("{stem}.{stamp}.savbak")))
+    let mut candidate = dir.join(format!("{stem}.{stamp}.savbak"));
+    let mut n = 2;
+    while candidate.exists() {
+        candidate = dir.join(format!("{stem}.{stamp}.{n}.savbak"));
+        n += 1;
+    }
+    Ok(candidate)
 }
 
 pub fn chrono_stamp() -> String {
@@ -812,3 +818,206 @@ pub fn set_path(g: &mut Graph, path: &str, json: &Json) -> Result<()> {
         Node::Str(_) => err("cannot set a path into a string"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Byte-level patching: edit primitives in place without re-serializing
+// ---------------------------------------------------------------------------
+
+/// Where a patchable value lives inside the decrypted save.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PatchTarget {
+    /// fixed-size primitive; `offset` is absolute in the plain stream
+    Primitive { offset: usize, ptype: u8 },
+    /// string payload (length prefix stays unchanged, so patch length must match)
+    Str { payload_offset: usize, len: usize },
+}
+
+pub fn patch_target(g: &Graph, path: &str) -> Result<PatchTarget> {
+    let segs = split_path(path);
+    if segs.is_empty() {
+        return err("empty path");
+    }
+    let last = segs.len() - 1;
+    let mut idx = effective_node(g, g.root);
+
+    for (i, seg) in segs.iter().enumerate() {
+        let is_last = i == last;
+        idx = effective_node(g, idx);
+        match &g.arena[idx] {
+            Node::Class { .. } => {
+                let mi = find_member(g, idx, seg)?;
+                if is_last {
+                    return class_member_target(g, idx, mi);
+                }
+                match &g.arena[idx] {
+                    Node::Class { members, .. } => {
+                        idx = match &members[mi] {
+                            Value::Ref(j) => *j,
+                            _ => return err(format!("'{seg}' is a primitive; cannot descend into it")),
+                        };
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            Node::ArraySinglePrimitive { ptype, items } => {
+                let el = parse_index(seg)?;
+                if el >= items.len() {
+                    return err("array index out of bounds");
+                }
+                if is_last {
+                    return Ok(PatchTarget::Primitive { offset: g.child_pos[idx][el], ptype: *ptype });
+                }
+                return err("cannot descend into a primitive array element");
+            }
+            Node::ArraySingleString { items } | Node::ArraySingleObject { items } | Node::BinaryArray { items, .. } => {
+                let el = parse_index(seg)?;
+                if el >= items.len() {
+                    return err("array index out of bounds");
+                }
+                if is_last {
+                    return element_target(g, idx, el);
+                }
+                idx = match &items[el] {
+                    Value::Ref(j) => *j,
+                    _ => return err(format!("'{seg}' element is null or primitive; cannot descend into it")),
+                };
+            }
+            Node::Str(_) => return err("path continues into a string"),
+        }
+    }
+    err("path could not be resolved")
+}
+
+fn class_member_target(g: &Graph, idx: usize, mi: usize) -> Result<PatchTarget> {
+    let (bt, additional) = match &g.arena[idx] {
+        Node::Class { binary_types, additional, .. } => (binary_types[mi], additional[mi].clone()),
+        _ => unreachable!(),
+    };
+    match bt {
+        0 => match additional {
+            Additional::Prim(ptype) => Ok(PatchTarget::Primitive { offset: g.child_pos[idx][mi], ptype }),
+            _ => err("primitive member without primitive type metadata"),
+        },
+        1 => {
+            let j = match &g.arena[idx] {
+                Node::Class { members, .. } => match &members[mi] {
+                    Value::Ref(j) => *j,
+                    _ => return err("string member is not an object reference"),
+                },
+                _ => unreachable!(),
+            };
+            str_target(g, j)
+        }
+        other => err(format!("member type {other} is not primitive or string (not patchable)")),
+    }
+}
+
+fn element_target(g: &Graph, idx: usize, el: usize) -> Result<PatchTarget> {
+    match &g.arena[idx] {
+        Node::ArraySingleString { items } | Node::ArraySingleObject { items } => {
+            match &items[el] {
+                Value::Ref(j) => str_target(g, *j),
+                Value::Prim(p) => Ok(PatchTarget::Primitive { offset: g.child_pos[idx][el], ptype: prim_guess_ptype(p) }),
+                Value::Null => err("element is null (not patchable)"),
+            }
+        }
+        Node::BinaryArray { bt, additional, items, .. } => {
+            if *bt == 0 {
+                match additional {
+                    Additional::Prim(ptype) => Ok(PatchTarget::Primitive { offset: g.child_pos[idx][el], ptype: *ptype }),
+                    _ => err("primitive binary array without primitive type metadata"),
+                }
+            } else {
+                match &items[el] {
+                    Value::Ref(j) => str_target(g, *j),
+                    Value::Prim(p) => Ok(PatchTarget::Primitive { offset: g.child_pos[idx][el], ptype: prim_guess_ptype(p) }),
+                    Value::Null => err("element is null (not patchable)"),
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn str_target(g: &Graph, j: usize) -> Result<PatchTarget> {
+    match &g.arena[j] {
+        Node::Str(_) => {
+            let pos = &g.child_pos[j];
+            if pos.len() != 2 {
+                return err("internal error: string node without payload position");
+            }
+            Ok(PatchTarget::Str { payload_offset: pos[0], len: pos[1] })
+        }
+        _ => err("string member does not reference a string object"),
+    }
+}
+
+fn prim_guess_ptype(p: &Prim) -> u8 {
+    match p {
+        Prim::Boolean(_) => 1,
+        Prim::Byte(_) => 2,
+        Prim::Char(_) => 3,
+        Prim::Decimal(_) => 5,
+        Prim::Double(_) => 6,
+        Prim::Int16(_) => 7,
+        Prim::Int32(_) => 8,
+        Prim::Int64(_) => 9,
+        Prim::SByte(_) => 10,
+        Prim::Single(_) => 11,
+        Prim::TimeSpan(_) => 12,
+        Prim::DateTime(_) => 13,
+        Prim::UInt16(_) => 14,
+        Prim::UInt32(_) => 15,
+        Prim::UInt64(_) => 16,
+        Prim::Null => 17,
+    }
+}
+
+/// Size in bytes of a primitive when encoded in a stream (None = variable-length).
+pub fn prim_byte_len(ptype: u8) -> Option<usize> {
+    match ptype {
+        1 => Some(1),
+        2 => Some(1),
+        6 => Some(8),
+        7 => Some(2),
+        8 => Some(4),
+        9 => Some(8),
+        10 => Some(1),
+        11 => Some(4),
+        12 => Some(8),
+        13 => Some(8),
+        14 => Some(2),
+        15 => Some(4),
+        16 => Some(8),
+        _ => None,
+    }
+}
+
+/// Encode a JSON value the way BinaryFormatter encodes a primitive member.
+pub fn prim_from_json(j: &Json, ptype: u8) -> Result<Prim> {
+    json_to_prim(j, ptype)
+}
+
+/// Encode a primitive to its little-endian byte representation (variable-length excluded).
+pub fn encode_prim(p: &Prim) -> Result<Vec<u8>> {
+    Ok(match p {
+        Prim::Boolean(v) => vec![*v as u8],
+        Prim::Byte(v) => vec![*v],
+        Prim::SByte(v) => vec![*v as u8],
+        Prim::Double(v) => v.to_le_bytes().to_vec(),
+        Prim::Int16(v) => v.to_le_bytes().to_vec(),
+        Prim::Int32(v) => v.to_le_bytes().to_vec(),
+        Prim::Int64(v) => v.to_le_bytes().to_vec(),
+        Prim::Single(v) => v.to_le_bytes().to_vec(),
+        Prim::TimeSpan(v) => v.to_le_bytes().to_vec(),
+        Prim::DateTime(v) => v.to_le_bytes().to_vec(),
+        Prim::UInt16(v) => v.to_le_bytes().to_vec(),
+        Prim::UInt32(v) => v.to_le_bytes().to_vec(),
+        Prim::UInt64(v) => v.to_le_bytes().to_vec(),
+        Prim::Char(_) => return err("Char fields are variable-length strings in NRBF (cannot patch)"),
+        Prim::Decimal(_) => return err("Decimal fields are variable-length strings in NRBF (cannot patch)"),
+        Prim::Null => return err("cannot patch a null primitive"),
+    })
+}
+
+

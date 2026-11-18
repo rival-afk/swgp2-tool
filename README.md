@@ -33,6 +33,9 @@ A `.sav` is a **.NET BinaryFormatter** stream encrypted with **AES-128-CBC**
 - *Decrypt / Encrypt*: raw `.sav` ⇄ BinaryFormatter stream
 - *Verify*: parse → emit → parse round-trip check; a written save that fails
   verification is restored from backup automatically
+- Writes are **in-place byte patches** (since 3.2.0) - never re-serialized;
+  only the bytes of the value you edit change, so the game always loads it
+  exactly like the original file
 - Quick cheats: `+1,000,000 Cr`, `Cr = 999,999,999`, `Coins = 999,999`
 
 ### Reset Saves

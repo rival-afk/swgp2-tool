@@ -144,6 +144,11 @@ pub struct Graph {
     pub libraries: Vec<(i32, String)>,
     /// root arena index
     pub root: usize,
+    /// absolute stream offset of each node's record start (parallel to `arena`)
+    pub record_pos: Vec<usize>,
+    /// absolute stream offset of each child value (per node; for classes: per member,
+    /// for arrays: per element, for strings: empty)
+    pub child_pos: Vec<Vec<usize>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -301,9 +306,16 @@ struct ParseCtx<'a> {
 }
 
 impl<'a> ParseCtx<'a> {
-    fn push_node(&mut self, obj_id: u32, node: Node) -> usize {
+    /// Position of the record tag byte (NRBF readers consume the tag before entering).
+    fn record_start_pos(&self) -> usize {
+        self.r.pos.saturating_sub(1)
+    }
+
+    fn push_node(&mut self, obj_id: u32, node: Node, pos: usize, children: Vec<usize>) -> usize {
         let idx = self.g.arena.len();
         self.g.arena.push(node);
+        self.g.record_pos.push(pos);
+        self.g.child_pos.push(children);
         self.by_id.insert(obj_id, idx);
         idx
     }
@@ -398,9 +410,12 @@ impl<'a> ParseCtx<'a> {
     }
 
     fn read_binary_object_string(&mut self) -> Result<u32> {
+        let record_pos = self.r.pos.saturating_sub(1);
         let obj_id = self.r.i32()? as u32;
         let s = self.r.lps()?;
-        self.push_node(obj_id, Node::Str(s));
+        let byte_len = s.len();
+        let payload_off = record_pos + 4 + (encode_lps(&s).len() - byte_len);
+        self.push_node(obj_id, Node::Str(s), record_pos, vec![payload_off, byte_len]);
         Ok(obj_id)
     }
 
@@ -408,12 +423,14 @@ impl<'a> ParseCtx<'a> {
         &mut self,
         binary_types: &[u8],
         additional: &[Additional],
-    ) -> Result<Vec<Value>> {
+    ) -> Result<(Vec<Value>, Vec<usize>)> {
         let mut members = Vec::with_capacity(binary_types.len());
+        let mut positions = Vec::with_capacity(binary_types.len());
         for (bt, ai) in binary_types.iter().zip(additional) {
+            positions.push(self.r.pos);
             members.push(self.read_value(*bt, ai)?);
         }
-        Ok(members)
+        Ok((members, positions))
     }
 
     fn finish_class(
@@ -426,8 +443,16 @@ impl<'a> ParseCtx<'a> {
         binary_types: Vec<u8>,
         additional: Vec<Additional>,
         members: Vec<Value>,
+        member_positions: Vec<usize>,
         is_definition: bool,
+        record_pos: usize,
     ) -> Result<u32> {
+        if std::env::var_os("SWGP2_DEBUG_RECORDS").is_some() {
+            eprintln!(
+                "      class id={obj_id} system={system} name={name} memberCount={}",
+                member_names.len()
+            );
+        }
         let idx = self.push_node(
             obj_id,
             Node::Class {
@@ -439,6 +464,8 @@ impl<'a> ParseCtx<'a> {
                 additional,
                 members,
             },
+            record_pos,
+            member_positions,
         );
         if is_definition {
             self.class_defs.insert(obj_id, idx);
@@ -447,12 +474,13 @@ impl<'a> ParseCtx<'a> {
     }
 
     fn read_class_with_members_and_types(&mut self) -> Result<u32> {
+        let record_pos = self.record_start_pos();
         let (obj_id, name, member_names) = self.read_class_info()?;
         let (binary_types, additional) = self.read_member_type_info(member_names.len())?;
         let library_id = self.r.i32()?;
-        let members = self.read_members(&binary_types, &additional)?;
+        let (members, member_positions) = self.read_members(&binary_types, &additional)?;
         self.finish_class(
-            obj_id, false, name, library_id, member_names, binary_types, additional, members, true,
+            obj_id, false, name, library_id, member_names, binary_types, additional, members, member_positions, true, record_pos,
         )
     }
 
@@ -461,33 +489,36 @@ impl<'a> ParseCtx<'a> {
     }
 
     fn read_system_class_with_members_and_types_inner(&mut self) -> Result<u32> {
+        let record_pos = self.record_start_pos();
         let (obj_id, name, member_names) = self.read_class_info()?;
         let (binary_types, additional) = self.read_member_type_info(member_names.len())?;
-        let members = self.read_members(&binary_types, &additional)?;
+        let (members, member_positions) = self.read_members(&binary_types, &additional)?;
         self.finish_class(
-            obj_id, true, name, 0, member_names, binary_types, additional, members, true,
+            obj_id, true, name, 0, member_names, binary_types, additional, members, member_positions, true, record_pos,
         )
     }
 
     fn read_system_class_with_members(&mut self) -> Result<u32> {
+        let record_pos = self.record_start_pos();
         let (obj_id, name, member_names) = self.read_class_info()?;
         // SystemClassWithMembers carries no type info; members are all objects.
         let binary_types = vec![2u8; member_names.len()];
         let additional = vec![Additional::None; member_names.len()];
-        let members = self.read_members(&binary_types, &additional)?;
+        let (members, member_positions) = self.read_members(&binary_types, &additional)?;
         self.finish_class(
-            obj_id, true, name, 0, member_names, binary_types, additional, members, true,
+            obj_id, true, name, 0, member_names, binary_types, additional, members, member_positions, true, record_pos,
         )
     }
 
     fn read_class_with_members(&mut self) -> Result<u32> {
+        let record_pos = self.record_start_pos();
         // ClassWithMembers: no type info, no library id; members treated as objects.
         let (obj_id, name, member_names) = self.read_class_info()?;
         let binary_types = vec![2u8; member_names.len()];
         let additional = vec![Additional::None; member_names.len()];
-        let members = self.read_members(&binary_types, &additional)?;
+        let (members, member_positions) = self.read_members(&binary_types, &additional)?;
         self.finish_class(
-            obj_id, false, name, 0, member_names, binary_types, additional, members, true,
+            obj_id, false, name, 0, member_names, binary_types, additional, members, member_positions, true, record_pos,
         )
     }
 
@@ -509,14 +540,16 @@ impl<'a> ParseCtx<'a> {
             ),
             _ => return err("class metadata id does not point to a class definition"),
         };
-        let members = self.read_members(&binary_types, &additional)?;
+        let record_pos = self.record_start_pos();
+        let (members, member_positions) = self.read_members(&binary_types, &additional)?;
         self.finish_class(
-            obj_id, system, name, library_id, member_names, binary_types, additional, members, false,
+            obj_id, system, name, library_id, member_names, binary_types, additional, members, member_positions, false, record_pos,
         )
     }
 
-    fn read_array_elements(&mut self, length: usize) -> Result<Vec<Value>> {
+    fn read_array_elements(&mut self, length: usize) -> Result<(Vec<Value>, Vec<usize>)> {
         let mut items = Vec::with_capacity(length);
+        let mut positions = Vec::with_capacity(length);
         let mut i = 0usize;
         while i < length {
             let pos = self.r.pos;
@@ -524,26 +557,30 @@ impl<'a> ParseCtx<'a> {
             match rec {
                 0x0A => {
                     items.push(Value::Null);
+                    positions.push(pos);
                     i += 1;
                 }
                 0x0D => {
                     let n = self.r.u8()? as usize;
                     items.extend(std::iter::repeat(Value::Null).take(n));
+                    positions.extend(std::iter::repeat(pos).take(n));
                     i += n;
                 }
                 0x0E => {
                     let n = self.r.i32()? as usize;
                     items.extend(std::iter::repeat(Value::Null).take(n));
+                    positions.extend(std::iter::repeat(pos).take(n));
                     i += n;
                 }
                 _ => {
                     self.r.pos = pos;
                     items.push(self.read_inline_value()?);
+                    positions.push(pos);
                     i += 1;
                 }
             }
         }
-        Ok(items)
+        Ok((items, positions))
     }
 
     fn read_array_single_primitive(&mut self) -> Result<u32> {
@@ -554,10 +591,12 @@ impl<'a> ParseCtx<'a> {
         }
         let ptype = self.r.u8()?;
         let mut items = Vec::with_capacity(length as usize);
+        let mut positions = Vec::with_capacity(length as usize);
         for _ in 0..length {
+            positions.push(self.r.pos);
             items.push(self.r.read_primitive(ptype)?);
         }
-        self.push_node(obj_id, Node::ArraySinglePrimitive { ptype, items });
+        self.push_node(obj_id, Node::ArraySinglePrimitive { ptype, items }, self.record_start_pos(), positions);
         Ok(obj_id)
     }
 
@@ -568,7 +607,9 @@ impl<'a> ParseCtx<'a> {
             return err("negative array length");
         }
         let items = self.read_array_elements(length as usize)?;
-        self.push_node(obj_id, Node::ArraySingleString { items });
+        let positions = items.1;
+        let items = items.0;
+        self.push_node(obj_id, Node::ArraySingleString { items }, self.record_start_pos(), positions);
         Ok(obj_id)
     }
 
@@ -579,7 +620,9 @@ impl<'a> ParseCtx<'a> {
             return err("negative array length");
         }
         let items = self.read_array_elements(length as usize)?;
-        self.push_node(obj_id, Node::ArraySingleObject { items });
+        let positions = items.1;
+        let items = items.0;
+        self.push_node(obj_id, Node::ArraySingleObject { items }, self.record_start_pos(), positions);
         Ok(obj_id)
     }
 
@@ -607,6 +650,7 @@ impl<'a> ParseCtx<'a> {
             4 => Additional::Class(self.r.lps()?, self.r.i32()?),
             _ => Additional::None,
         };
+        let record_pos = self.record_start_pos();
         let mut total: i64 = 1;
         for l in &lengths {
             if *l < 0 {
@@ -617,22 +661,27 @@ impl<'a> ParseCtx<'a> {
         if total > 100_000_000 {
             return err("array too large");
         }
-        let items = if bt == 0 {
+        let (items, positions) = if bt == 0 {
             if let Additional::Prim(ptype) = additional {
                 let mut out = Vec::with_capacity(total as usize);
+                let mut positions = Vec::with_capacity(total as usize);
                 for _ in 0..total {
+                    positions.push(self.r.pos);
                     out.push(Value::Prim(self.r.read_primitive(ptype)?));
                 }
-                out
+                (out, positions)
             } else {
                 return err("primitive binary array without primitive type");
             }
         } else {
-            self.read_array_elements(total as usize)?
+            let (items, positions) = self.read_array_elements(total as usize)?;
+            (items, positions)
         };
         self.push_node(
             obj_id,
             Node::BinaryArray { array_type, lengths, lower_bounds, bt, additional, items },
+            record_pos,
+            positions,
         );
         Ok(obj_id)
     }
@@ -711,6 +760,10 @@ pub fn parse(data: &[u8]) -> Result<Graph> {
         }
         let pos = ctx.r.pos;
         let rec = ctx.r.u8()?;
+        // Debug record trace (set SWGP2_DEBUG_RECORDS=1 to enable).
+        if std::env::var_os("SWGP2_DEBUG_RECORDS").is_some() {
+            eprintln!("rec @ {pos:6}: 0x{rec:02x}");
+        }
         match rec {
             0x0B => break, // MessageEnd
             0x0C => ctx.read_binary_library()?,

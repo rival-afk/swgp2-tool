@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.2.0 - 2026-11-18
+
+**Critical fix:** the tool no longer re-serializes the save at all. The old
+write path (parse → mutate graph → re-emit NRBF → encrypt) produced a stream
+that the game's BinaryFormatter partially rejected, so the game silently
+"forgot" parts of the profile (garage, stats, …) while our own reader saw a
+consistent file. Writes are now **in-place byte patches**: every byte the user
+didn't edit stays identical to the game-written original. Safety model is
+provably intact — `patch_noop_is_byte_identical` test.
+
+- `save::patch_target` / `save::patch_save` resolve any path to the exact
+  byte offset of a fixed-size primitive or an equal-length string payload
+  (`Economy`, `Coins`, `StatsData_.*`, `GarageSlots.N.*`, array elements, …).
+- `apply` JSON: only scalar leaves are patched; structural changes are rejected.
+- Language strings are patchable when their byte length is unchanged (e.g. RUS→ENG).
+- Backups keep a .N suffix on same-second collisions.
+- Verified by .NET Framework BinaryFormatter probe (examples) and new
+  `patch_noop_is_byte_identical` / `patch_and_reload` tests.
+- The local save was restored from backup (pre-corruption) with the fix applied.
+
 ## 3.1.0 - 2026-11-18
 
 - New **Reset Saves** section (menu: Tools → Reset ALL saves…): full wipe of

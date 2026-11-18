@@ -334,7 +334,7 @@ impl Tool {
             .iter()
             .map(|f| (f.path.clone(), app::parse_value(&f.text)))
             .collect();
-        match app::save_with_backup(&path, &edits) {
+        match app::patch_save(&path, &edits) {
             Ok(backup) => {
                 self.msg(format!("saved (backup: {})", file_name(&backup)), true);
                 self.dirty = false;

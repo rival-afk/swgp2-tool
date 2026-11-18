@@ -15,7 +15,8 @@ src/app.rs            shared front-end logic (flag-free)
   load(path)                      decrypt + parse → Graph
   field_text(g, path)             value → display string
   parse_value(s)                  editor text → Json (number/bool/string)
-  save_with_backup(path, edits)   edit→dump→backup→store→RE-VERIFY→(restore on fail)
+  save_with_backup is GONE (was unsafe) - see `patch_save` / `set_single`
+        (in-place byte patches by byte offset; no re-serialization)
   set_single / apply_json_file    path-edit / whole-document merge, same safety
   dump_json(path)                 pretty JSON string
   restore_backup(save, bak)       copies .savbak over save (backs current first)
@@ -56,8 +57,11 @@ src/crypto.rs         AES-128-CBC, zero IV, PKCS7; KEY = 16 ASCII bytes "W9JU3JA
 ```
 
 Data flow: `.sav → decrypt → NRBF bytes → Graph ⇄ dump/get/set ⇄ Json`.
-Writes always go: edit Graph → JSON-dump compare expectation → backup → store →
-re-decrypt+re-parse → JSON-compare; mismatch ⇒ original restored from backup.
+WRITES ARE IN-PLACE BYTE PATCHES (since 3.2.0): resolve path → primitive
+byte offset (via `Graph::record_pos` / `Graph::child_pos`) → overwrite just
+those bytes → re-encrypt. No re-serialization, ever. A no-op patch must be
+byte-identical (tested). Whole-graph dump → backup → AES-write → re-parse →
+JSON-compare verify remains as a final guard; restore-on-failure is automatic.
 
 Safety model: game must be CLOSED (it overwrites saves on exit). Backups live in
 `<save dir>\Backups\*.savbak`. `save_with_backup` is the only write path that any
