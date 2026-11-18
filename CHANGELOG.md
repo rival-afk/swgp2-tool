@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.3.0 - 2026-11-18
+
+- New **Wiki** section: in-game reference built from the game's own data files -
+  - *Cars*: the official 25-car power ranking (uselesslist.txt) with brand,
+    year, CV, top speed, rally/circuit class, skin variant count, per-car
+    power/speed ranks and skin previews. Click a row for the full profile.
+  - *Championships*: all 8 in-game championships with rally/circuit/touring/
+    beginner class markers and best-car picks ranked by the official CV/speed
+    figures (Rookie Challenge, Junior Series, Super DTC, ONLY BTC, 300s Rally,
+    400s WORLD RALLY, SUPER WORLD RALLY, JTC SUPER BATTLE).
+  - *Tips*: mechanics-based tips (car wear, editing safety, backups, rankings).
+- All stats are read from the game's data files - nothing is invented; class-
+  restricted (BTC/DTC/JTC) championships have no official stats and say so.
+
 ## 3.2.0 - 2026-11-18
 
 **Critical fix:** the tool no longer re-serializes the save at all. The old

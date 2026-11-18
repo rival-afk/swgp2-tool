@@ -5,3 +5,4 @@ pub mod game;
 pub mod reset;
 pub mod settings;
 pub mod skins;
+pub mod wiki;

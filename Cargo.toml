@@ -1,6 +1,6 @@
 [package]
 name = "swgp2-tool"
-version = "3.2.0"
+version = "3.3.0"
 edition = "2021"
 description = "All-in-one tool for Super Woden GP 2 (ViJuDa) - save editor, car database, skins browser"
 license = "MIT"

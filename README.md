@@ -68,6 +68,14 @@ navigation across a car's skins.
   `CustomMusic`, `uselesslist.txt`, `Credits.txt`
 - **Back up ALL save slots** in one click
 
+### Wiki
+
+Built-in reference compiled from the game's own data files: the official
+25-car power ranking (uselesslist.txt) with CV/top speed/year and rally class,
+brand catalog from CAR_SKINS, all 8 championships with best-car picks (by
+official CV/speed), plus tips. No invented meta - everything is the game's
+data, class-restricted championships without official stats say so.
+
 ### About
 
 Version, repo link, safety model, and the game's own `Credits.txt` rendered in-app.

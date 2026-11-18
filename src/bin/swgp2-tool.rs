@@ -59,6 +59,7 @@ enum Section {
     Save,
     Cars,
     Skins,
+    Wiki,
     Game,
     Reset,
     About,
@@ -70,9 +71,27 @@ impl Section {
             Section::Save => "Save Editor",
             Section::Cars => "Cars",
             Section::Skins => "Car Skins",
+            Section::Wiki => "Wiki",
             Section::Game => "Game",
             Section::Reset => "Reset Saves",
             Section::About => "About",
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum WikiTab {
+    Cars,
+    Championships,
+    Tips,
+}
+
+impl WikiTab {
+    fn label(self) -> &'static str {
+        match self {
+            WikiTab::Cars => "Cars",
+            WikiTab::Championships => "Championships",
+            WikiTab::Tips => "Tips",
         }
     }
 }
@@ -135,6 +154,12 @@ struct Tool {
     reset_armed: bool,
     archives: Vec<reset::ResetArchive>,
     archive_sel: usize,
+
+    // --- wiki
+    wiki_tab: WikiTab,
+    wiki_car_filter: String,
+    wiki_selected_car: Option<usize>,
+    wiki_skin_idx: usize,
 }
 
 impl Tool {
@@ -179,6 +204,10 @@ impl Tool {
             reset_armed: false,
             archives: Vec::new(),
             archive_sel: 0,
+            wiki_tab: WikiTab::Cars,
+            wiki_car_filter: String::new(),
+            wiki_selected_car: None,
+            wiki_skin_idx: 0,
         };
         t.refresh_archives();
         t.reload_save_slots();
@@ -582,7 +611,7 @@ impl eframe::App for Tool {
             .resizable(false)
             .show(ctx, |ui| {
                 ui.add_space(6.0);
-                for s in [Section::Save, Section::Cars, Section::Skins, Section::Game, Section::Reset, Section::About] {
+                for s in [Section::Save, Section::Cars, Section::Skins, Section::Wiki, Section::Game, Section::Reset, Section::About] {
                     let selected = self.section == s;
                     let btn = egui::Button::new(egui::RichText::new(s.label()).size(15.0))
                         .min_size(egui::vec2(120.0, 34.0))
@@ -601,6 +630,7 @@ impl eframe::App for Tool {
             Section::Save => self.save_section(ui),
             Section::Cars => self.cars_section(ui, ctx),
             Section::Skins => self.skins_section(ui, ctx),
+            Section::Wiki => self.wiki_section(ui, ctx),
             Section::Game => self.game_section(ui),
             Section::Reset => self.reset_section(ui),
             Section::About => self.about_section(ui),
@@ -1144,6 +1174,217 @@ impl Tool {
                 ui.label("Set the game folder above to see details.");
             }
         }
+    }
+
+    // --------------------------------------------------- wiki: cars page
+    fn wiki_section(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            for t in [WikiTab::Cars, WikiTab::Championships, WikiTab::Tips] {
+                let btn = egui::Button::new(egui::RichText::new(t.label()).size(15.0))
+                    .min_size(egui::vec2(130.0, 30.0))
+                    .selected(self.wiki_tab == t);
+                if ui.add(btn).clicked() {
+                    self.wiki_tab = t;
+                }
+                ui.add_space(4.0);
+            }
+        });
+        ui.separator();
+        match self.wiki_tab {
+            WikiTab::Cars => self.wiki_cars_page(ui, ctx),
+            WikiTab::Championships => self.wiki_championships_page(ui),
+            WikiTab::Tips => self.wiki_tips_page(ui),
+        }
+    }
+
+    fn wiki_cars_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        if !self.require_game_dir(ui) {
+            return;
+        }
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.small(format!("{} cars in the game's official power ranking (uselesslist.txt). Click a row for full specs.", self.cars.len()));
+            ui.separator();
+            ui.label("Filter:");
+            ui.add(egui::TextEdit::singleline(&mut self.wiki_car_filter).desired_width(200.0));
+            if ui.button("x").clicked() {
+                self.wiki_car_filter.clear();
+            }
+        });
+        ui.add_space(6.0);
+
+        let avail = ui.available_size();
+        let table_w = (avail.x - 350.0).max(300.0);
+        let filter = self.wiki_car_filter.to_lowercase();
+
+        let mut order: Vec<usize> = (0..self.cars.len())
+            .filter(|&i| filter.is_empty() || self.cars[i].name.to_lowercase().contains(&filter))
+            .collect();
+        order.sort_by(|&a, &b| self.cars[b].cv.cmp(&self.cars[a].cv).then(self.cars[b].top_speed.cmp(&self.cars[a].top_speed)));
+
+        ui.horizontal(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(table_w, avail.y),
+                egui::Layout::top_down(egui::Align::LEFT),
+                |ui| {
+                    egui::ScrollArea::vertical().id_salt("wiki_cars").show(ui, |ui| {
+                        egui::Grid::new("wiki_cars_grid")
+                            .num_columns(8)
+                            .striped(true)
+                            .min_col_width(30.0)
+                            .spacing([10.0, 3.0])
+                            .show(ui, |ui| {
+                                for h in ["#", "Car", "Brand", "Year", "CV", "km/h", "Type", "Skins"] {
+                                    ui.strong(h);
+                                }
+                                ui.end_row();
+                                for (rank, i) in order.iter().enumerate() {
+                                    let car = &self.cars[*i];
+                                    let selected = self.wiki_selected_car == Some(*i);
+                                    let pick_id = egui::Id::new(("wiki_car_row", *i));
+                                    let _ = pick_id;
+                                    if ui.add(egui::SelectableLabel::new(selected, format!("{}", rank + 1))).clicked() {
+                                        self.wiki_selected_car = Some(*i);
+                                        self.wiki_skin_idx = 0;
+                                    }
+                                    if ui.add(egui::SelectableLabel::new(selected, &car.name)).clicked() {
+                                        self.wiki_selected_car = Some(*i);
+                                        self.wiki_skin_idx = 0;
+                                    }
+                                    ui.label(swgp2_tool::tool::wiki::brand_of(car));
+                                    ui.label(car.year.to_string());
+                                    ui.label(car.cv.to_string());
+                                    ui.label(car.top_speed.to_string());
+                                    ui.label(if car.rally { "Rally" } else { "Circuit" });
+                                    ui.label(car.skin_dirs.len().to_string());
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                },
+            );
+
+            ui.separator();
+            ui.vertical(|ui| {
+                ui.strong("Specs");
+                match self.wiki_selected_car {
+                    Some(i) => {
+                        let car = &self.cars[i];
+                        let brand = swgp2_tool::tool::wiki::brand_of(car);
+                        ui.label(egui::RichText::new(format!("{}{}", car.name, if car.rally { " (rally)" } else { "" })).size(17.0).strong());
+                        ui.label(egui::RichText::new(format!("{brand} - {year}", year = car.year)).monospace());
+                        ui.add_space(4.0);
+                        egui::Grid::new("spec").num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
+                            let rows = vec![
+                                ("Power", format!("{} CV", car.cv)),
+                                ("Top speed", format!("{} km/h", car.top_speed)),
+                                ("Car class", if car.rally { "Rally".into() } else { "Circuit".into() }),
+                                ("Skin variants", car.skin_dirs.len().to_string()),
+                            ];
+                            for (k, v) in rows {
+                                ui.label(egui::RichText::new(k).monospace().small());
+                                ui.label(v);
+                                ui.end_row();
+                            }
+                        });
+                        ui.add_space(8.0);
+                        // ranks
+                        let mut by_cv: Vec<usize> = (0..self.cars.len()).collect();
+                        by_cv.sort_by(|&a, &b| self.cars[b].cv.cmp(&self.cars[a].cv));
+                        let mut by_speed: Vec<usize> = (0..self.cars.len()).collect();
+                        by_speed.sort_by(|&a, &b| self.cars[b].top_speed.cmp(&self.cars[a].top_speed));
+                        let cv_rank = by_cv.iter().position(|&x| x == i).map(|p| p + 1).unwrap_or(0);
+                        let speed_rank = by_speed.iter().position(|&x| x == i).map(|p| p + 1).unwrap_or(0);
+                        ui.label(egui::RichText::new(format!("#{cv_rank} by power - #{speed_rank} by top speed")).small().italics());
+                        ui.add_space(8.0);
+
+                        let images = cars::list_skin_images(&car.skin_dirs);
+                        if !images.is_empty() {
+                            self.wiki_skin_idx = self.wiki_skin_idx.min(images.len() - 1);
+                            let path = images[self.wiki_skin_idx].clone();
+                            if let Some(tex) = self.texture(ctx, &path) {
+                                let max = egui::vec2(300.0, 210.0);
+                                let ts = tex.size_vec2();
+                                let scale = (max.x / ts.x).min(max.y / ts.y).min(2.0).max(0.01);
+                                ui.image((tex.id(), ts * scale));
+                            }
+                            ui.horizontal(|ui| {
+                                if ui.button("<").clicked() && self.wiki_skin_idx > 0 {
+                                    self.wiki_skin_idx -= 1;
+                                }
+                                ui.label(format!("{}/{}", self.wiki_skin_idx + 1, images.len()));
+                                if ui.button(">").clicked() && self.wiki_skin_idx + 1 < images.len() {
+                                    self.wiki_skin_idx += 1;
+                                }
+                            });
+                            ui.small(file_name(&path));
+                        }
+                    }
+                    None => {
+                        ui.label("Select a car to see its full profile, brand, rankings and skin previews.");
+                    }
+                }
+            });
+        });
+    }
+
+    // --------------------------------------------- wiki: championships page
+    fn wiki_championships_page(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("Championships - best cars (by the game's official stats)").size(17.0).strong());
+        ui.small("Car ranking comes from the game's own uselesslist.txt. Recommendations are sorted by official CV/speed - they are not a playtested meta. Class-restricted championships (BTC, DTC, JTC) have no official stats in the game data.");
+        ui.add_space(8.0);
+
+        egui::ScrollArea::vertical().id_salt("wiki_champs").show(ui, |ui| {
+            for ch in swgp2_tool::tool::wiki::CHAMPIONSHIPS {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(ch.name).strong());
+                        let (txt, color) = match ch.kind {
+                            swgp2_tool::tool::wiki::ChampKind::Rally => ("RALLY", egui::Color32::from_rgb(0, 150, 60)),
+                            swgp2_tool::tool::wiki::ChampKind::Circuit => ("CIRCUIT", egui::Color32::from_rgb(0, 90, 160)),
+                            swgp2_tool::tool::wiki::ChampKind::Touring => ("TOURING", egui::Color32::from_rgb(160, 90, 0)),
+                            swgp2_tool::tool::wiki::ChampKind::Beginner => ("BEGINNER", egui::Color32::from_rgb(120, 120, 120)),
+                        };
+                        ui.colored_label(color, txt);
+                    });
+                    ui.label(ch.note);
+                    let picks = swgp2_tool::tool::wiki::pick_for(&self.cars, ch.kind, 5);
+                    if picks.is_empty() {
+                        ui.small("No ranked cars of this class exist in the game's ranking - choose by price and availability.");
+                    } else {
+                        let txt = picks
+                            .iter()
+                            .map(|c| format!("{} ({} CV, {})", c.name, c.cv, c.year))
+                            .collect::<Vec<_>>()
+                            .join("   |   ");
+                        ui.label(egui::RichText::new(format!("Top picks: {txt}")).small());
+                    }
+                });
+                ui.add_space(4.0);
+            }
+        });
+    }
+
+    // --------------------------------------------- wiki: tips page
+    fn wiki_tips_page(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("Tips & notes").size(17.0).strong());
+        ui.add_space(6.0);
+        for tip in swgp2_tool::tool::wiki::TIPS {
+            ui.horizontal(|ui| {
+                ui.label("-");
+                ui.label(*tip);
+            });
+        }
+        ui.add_space(10.0);
+        ui.separator();
+        ui.small("Data sources (all from the game's own files):");
+        ui.label("Power ranking: StreamingAssets/Data/uselesslist.txt (25 cars, CV / km/h / year, '-R' prefix = rally)");
+        ui.label("Skins: StreamingAssets/CAR_SKINS/<BRAND>/<CAR>");
+        ui.label("Championship names: Super Woden GP 2_Data/level0 (championships screen)");
+        ui.small("This wiki is a fan-made reference compiled from the game's data files. Not affiliated with ViJuDa.");
     }
 
     // --------------------------------------------------- reset section

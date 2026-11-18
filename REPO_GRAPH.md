@@ -37,6 +37,9 @@ src/tool/            game-data side of the tool (no GUI deps)
              under CAR_SKINS/<BRAND>/<CAR> (case/alnum-insensitive); 25/25 match on install
   skins.rs   SkinEntry scan(skins_root) - every .png/.tga/.jpg under CAR_SKINS, kind=Render|Mask
   settings.rs settings.json in %APPDATA%/swgp2-tool - persists chosen game_dir
+  wiki.rs      Wiki content from game files: CHAMPIONSHIPS table (8 leagues,
+             kind Rally/Circuit/Touring/Beginner + picks), rally_cars/circuit_cars
+             sort helpers, TIPS list, sources cited in-app
         │ uses ▼
 src/save.rs           high-level save handling (all errors = SaveError(String))
   load(path) → (Graph, raw)       read → crypto::decrypt → nrbf::parse
