@@ -1413,6 +1413,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2695,13 +2697,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "swgp2-save-editor"
-version = "2.0.0"
+name = "swgp2-tool"
+version = "3.0.0"
 dependencies = [
  "aes",
  "cbc",
  "crossterm",
  "eframe",
+ "image",
  "ratatui",
  "rfd",
  "serde",

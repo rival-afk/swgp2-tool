@@ -1,21 +1,21 @@
 [package]
-name = "swgp2-save-editor"
-version = "2.0.0"
+name = "swgp2-tool"
+version = "3.0.0"
 edition = "2021"
-description = "Save file editor for Super Woden GP 2 (ViJuDa / SWGP2) - decrypt, edit, backup and re-encrypt .sav files"
+description = "All-in-one tool for Super Woden GP 2 (ViJuDa) - save editor, car database, skins browser"
 license = "MIT"
-repository = "https://github.com/rival-afk/swgp2-save-editor"
+repository = "https://github.com/rival-afk/swgp2-tool"
 keywords = ["save-editor", "binaryformatter", "unity", "swgp2", "modding"]
 categories = ["game-engines"]
-default-run = "swgp2"
+default-run = "swgp2-tool"
 
 [lib]
-name = "swgp2_save_editor"
+name = "swgp2_tool"
 path = "src/lib.rs"
 
 [[bin]]
-name = "swgp2"
-path = "src/bin/swgp2.rs"
+name = "swgp2-tool"
+path = "src/bin/swgp2-tool.rs"
 
 [[bin]]
 name = "swgp2-tui"
@@ -36,3 +36,4 @@ eframe = { version = "0.31", default-features = false, features = ["default_font
 rfd = "0.15"
 ratatui = "0.29"
 crossterm = "0.28"
+image = { version = "0.25", default-features = false, features = ["png", "tga", "jpeg"] }

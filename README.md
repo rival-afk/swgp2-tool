@@ -1,18 +1,17 @@
-# swgp2-save-editor
+# swgp2-tool
 
-Save-file editor for **Super Woden GP 2** (ViJuDa, Unity + Mono).
+All-in-one tool for **Super Woden GP 2** (ViJuDa, Unity + Mono).
 
-Single native binary. No runtime, no Python, no .NET required. Two ways to run it:
+Single native binary. No runtime, no Python, no .NET required. Just run it:
 
-- **`swgp2`** — simple GUI. Double-click it (or run it with no arguments) and edit.
-- **`swgp2-tui`** — same thing in a terminal. Just run it.
+- **`swgp2-tool.exe`** — 7z-style GUI: white, simple, everything two clicks away
+- **`swgp2-tui.exe`** — the same save editor in a terminal
 
-Neither takes any flags — launch and go.
+No flags. Double-click and go.
 
-> Status: **2.0**. The old flag-based CLI was removed; everything it could do is
-> now in the GUI and TUI (edit fields, set any path, dump/apply JSON, backups).
+## What's inside
 
-## What it does
+### Save Editor
 
 The game stores saves at
 
@@ -21,38 +20,50 @@ The game stores saves at
 ```
 
 A `.sav` is a **.NET BinaryFormatter** stream encrypted with **AES-128-CBC**
-(zero IV, PKCS7 padding, UTF-8 key, key is the 16-byte ASCII string
-`W9JU3JASLM7765D2`). This tool:
+(zero IV, PKCS7 padding, key = the 16-byte ASCII string `W9JU3JASLM7765D2`).
 
-- shows and edits the common fields (credits, coins, difficulty, races,
-  victories, money won/spent, distance, …)
-- can set **any** field by path (`GarageSlots.0.CarID`,
-  `LeagueStatus_.ChampPrices.2`, `StatsData_.RacesCompleted`, …)
-- dumps the entire save to JSON and merges a JSON document back in
-- creates timestamped backups on **every** write and verifies the written file
-  by re-parsing it — if verification fails the backup is restored automatically
-- restores backups from within the app
+- Edit Credits / Coins / Language / Difficulty / races / victories / money won
+  & spent / distance inline, then **Save** (auto-backup + auto-verify)
+- Top-toolbar **Load / Reload / Save** for the save file itself
+- Set **any** field by path (`GarageSlots.0.CarID`,
+  `LeagueStatus_.ChampPrices.2`, …) in the *Advanced* section
+- *Raw JSON*: dump the whole save to a file / apply a JSON document back / preview
+- *Backups*: timestamped backup on **every** write; list / restore / delete
+  from inside the app; restore auto-backs-up the current save first
+- *Decrypt / Encrypt*: raw `.sav` ⇄ BinaryFormatter stream
+- *Verify*: parse → emit → parse round-trip check; a written save that fails
+  verification is restored from backup automatically
+- Quick cheats: `+1,000,000 Cr`, `Cr = 999,999,999`, `Coins = 999,999`
+
+### Cars
+
+Power ranking parsed from the game's `uselesslist.txt` (25 cars with CV, top
+speed and year), with **PNG/TGA preview of the actual car skin** from
+`StreamingAssets/CAR_SKINS`. Sortable columns, live filter, rally-car handling —
+100% of the ranked cars resolve to their skin folders.
+
+### Car Skins
+
+Browser over all ~640 skin files in `CAR_SKINS` (renders and `Car_bounds`
+masks): brand → car → file, filterable, with full-size preview and in-place
+navigation across a car's skins.
+
+### Game
+
+- Auto-detects the portable game folder (e.g. `F:\games\SWGP2`) or lets you pick it
+  (remembered in `%APPDATA%\swgp2-tool\settings.json`)
+- Game info: product/company, exe size & mtime, skin/save/backup counts,
+  `boot.config` viewer
+- One-click: **Launch game**, open game folder, save folder, Backups,
+  `CustomMusic`, `uselesslist.txt`, `Credits.txt`
+- **Back up ALL save slots** in one click
+
+### About
+
+Version, repo link, safety model, and the game's own `Credits.txt` rendered in-app.
 
 **The game must be closed while editing** — otherwise it will overwrite the
 file on exit.
-
-## GUI (`swgp2`)
-
-- Slot picker + "Open file…" for a non-default `.sav`
-- Edit Credits / Coins / Language / Difficulty / stats inline, press **Save**
-  (auto-creates a backup)
-- *Advanced – set any path*: `GarageSlots.0.CarID = 5` → **Set**
-- *Raw JSON*: dump to file, apply from file, or preview
-- *Backups*: back up now / restore a previous backup
-- Status bar shows what happened; errors are red
-
-## TUI (`swgp2-tui`)
-
-```
-↑/↓ select field   Enter edit   s save (auto-backup)   Tab switch slot
-b backup           r restore latest backup (asks y/n)   d dump JSON → ./swgp2-dump.json
-q quit
-```
 
 ## Building from source
 
@@ -62,13 +73,18 @@ Rust toolchain only:
 cargo build --release
 ```
 
-produces `target/release/swgp2[.exe]` (GUI) and `target/release/swgp2-tui[.exe]`
-(TUI) — single static binaries, nothing else needed.
+produces `target/release/swgp2-tool[.exe]` (GUI) and `target/release/swgp2-tui[.exe]`
+— single static binaries, nothing else needed.
 
-Tests: `cargo test --release` (round-trip check on a temp copy of your save;
-skips cleanly if there is no save on this machine).
+Tests: `cargo test --release` (round-trip check on a temp copy of your save, a
+car-DB parse/skin-match check; both skip cleanly when the game isn't installed here).
 
-## How it works / file format
+## Releases
+
+Windows binaries are built locally (no CI) and attached to GitHub Releases.
+This is a Windows game; Linux/macOS builds are not produced.
+
+## File format / internals
 
 ```
 .sav  =  AES-128-CBC( KEY = "W9JU3JASLM7765D2", IV = 0x00*16, PKCS7 )
@@ -80,14 +96,7 @@ skips cleanly if there is no save on this machine).
 ```
 
 Parsing is lossless: parse → emit → parse produces identical data (verified by
-the test suite). Addresses of fields are byte-identical between parse and emit,
-so nothing is normalized or lost. Forks/modiffs: see **REPO_GRAPH.md** for a
-compact map of the codebase (written to save AI-assistant tokens).
-
-## Releases
-
-GitHub Releases carry prebuilt binaries. Tagging `v*` builds Windows, Linux and
-macOS binaries via `.github/workflows/release.yml` and attaches them to the release.
+the test suite). See **REPO_GRAPH.md** for a compact map of the codebase.
 
 ## Disclaimer
 

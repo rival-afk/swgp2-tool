@@ -17,7 +17,7 @@ use serde_json::Value as Json;
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
-use swgp2_save_editor::app;
+use swgp2_tool::app;
 
 struct Field {
     path: String,
@@ -105,7 +105,7 @@ impl App {
 
     fn backup(&mut self) {
         let Some(path) = self.save_path.clone() else { return };
-        match swgp2_save_editor::save::create_backup(&path) {
+        match swgp2_tool::save::create_backup(&path) {
             Ok(b) => self.msg(format!("backup created: {}", b.display()), Color::Green),
             Err(e) => self.msg(format!("error: {e}"), Color::Red),
         }
@@ -113,7 +113,7 @@ impl App {
 
     fn restore_latest(&mut self) {
         let Some(path) = self.save_path.clone() else { return };
-        match swgp2_save_editor::save::list_backups(&path) {
+        match swgp2_tool::save::list_backups(&path) {
             Ok(backups) => match backups.last() {
                 Some(latest) => match app::restore_backup(&path, latest) {
                     Ok(cur) => {

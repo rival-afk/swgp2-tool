@@ -1,11 +1,15 @@
-# REPO_GRAPH — swgp2-save-editor (read this instead of the source)
+# REPO_GRAPH — swgp2-tool (read this instead of the source)
 
-Crate layout: `lib (swgp2_save_editor)` shared by two flag-free binaries.
-Everything works on a parsed **Graph**; JSON is only a view/interchange format.
+Crate layout: `lib (swgp2_tool)` shared by two flag-free binaries.
+Everything save-related works on a parsed **Graph**; JSON is only a view/interchange format.
 
 ```
-src/bin/swgp2.rs      GUI (eframe/egui). run: `swgp2`            (no args)
-src/bin/swgp2-tui.rs  TUI (ratatui/crossterm). run: `swgp2-tui`  (no args)
+src/bin/swgp2-tool.rs  GUI (eframe/egui, 7z-style). run: `swgp2-tool`  (no args)
+                        menu bar + toolbar(Load/Reload/Save) + left rail sections:
+                        Save Editor | Cars | Car Skins | Game | About
+                        top toolbar Save buttons act on current save; quick cheats;
+                        cars table sortable; PNG/TGA previews via `image` crate
+src/bin/swgp2-tui.rs   TUI (ratatui/crossterm). run: `swgp2-tui`        (no args)
         │ both call ▼
 src/app.rs            shared front-end logic (flag-free)
   load(path)                      decrypt + parse → Graph
@@ -14,9 +18,19 @@ src/app.rs            shared front-end logic (flag-free)
   save_with_backup(path, edits)   edit→dump→backup→store→RE-VERIFY→(restore on fail)
   set_single / apply_json_file    path-edit / whole-document merge, same safety
   dump_json(path)                 pretty JSON string
-  restore_backup(save, bak)       copies .savbak over save (backs up current first)
+  restore_backup(save, bak)       copies .savbak over save (backs current first)
   slot_choices()                  detected save slots (falls back to slot 0)
-  COMMON_FIELDS                   the 9 editor fields (Economy, Coins, StatsData_.*…)
+  COMMON_FIELDS                   the 10 editor fields (Economy, Coins, StatsData_.*…)
+        │ uses ▼
+src/tool/            game-data side of the tool (no GUI deps)
+  game.rs    detect_game_dir() - shallow scan of drive roots for "Super Woden GP 2.exe"
+             game_info(dir)      - product/company/boot.config/exe mtime/skin-save counts
+             streaming_data_dir / skins_root / custom_music_dir paths
+  cars.rs    CarEntry::parse_file(uselesslist.txt) - "[-R]NAME cv CV kmh Kmh || year"
+             (leading "-R" = rally → folder key "R<NAME>"); attach_skin_dirs matches folders
+             under CAR_SKINS/<BRAND>/<CAR> (case/alnum-insensitive); 25/25 match on install
+  skins.rs   SkinEntry scan(skins_root) - every .png/.tga/.jpg under CAR_SKINS, kind=Render|Mask
+  settings.rs settings.json in %APPDATA%/swgp2-tool - persists chosen game_dir
         │ uses ▼
 src/save.rs           high-level save handling (all errors = SaveError(String))
   load(path) → (Graph, raw)       read → crypto::decrypt → nrbf::parse
@@ -27,11 +41,10 @@ src/save.rs           high-level save handling (all errors = SaveError(String))
   create_backup / list_backups / backup_dir_for        sibling `Backups\<stem>.<yyyymmdd-hhmmss>.savbak`
   chrono_stamp()                  timestamp w/o chrono crate
         │ uses ▼
-src/nrbf.rs           MS-NRBF (.NET BinaryFormatter) parser+writer, 37252 B, THE CORE
+src/nrbf.rs           MS-NRBF (.NET BinaryFormatter) parser+writer (~37 KB, THE CORE)
   parse(&[u8]) → Graph            Node arena (Vec<Node>), root: usize, ids map
   Writer::new().write(&g)         byte-identical re-emit (roundtrip-lossless)
-  Graph { arena, root, … }  Node::{ Class{member_names,…}, Object… }  Value/Prim enums
-  dump: node_to_json (in save.rs) walks Graph → Json
+  Graph { arena, root, … }  Node::{ Class{…} }  Value/Prim enums
         │ uses ▼
 src/crypto.rs         AES-128-CBC, zero IV, PKCS7; KEY = 16 ASCII bytes "W9JU3JASLM7765D2"
   encrypt_save / decrypt_save(&[u8]) -> Result<Vec<u8>, String>
@@ -42,11 +55,18 @@ Writes always go: edit Graph → JSON-dump compare expectation → backup → st
 re-decrypt+re-parse → JSON-compare; mismatch ⇒ original restored from backup.
 
 Safety model: game must be CLOSED (it overwrites saves on exit). Backups live in
-`<save dir>\Backups\*.savbak`. `save_with_backup` is the only write path that both
-binaries use for user data — do not bypass it.
+`<save dir>\Backups\*.savbak`. `save_with_backup` is the only write path that any
+front-end uses for user data — do not bypass it.
 
-Tests: `cargo test --release` → tests/roundtrip.rs verifies load→save→dump is a
-fixed point on a temp copy of the real save (skips if no save present).
+Game assets consumed (portable Unity install, e.g. `F:\games\SWGP2`):
+`Super Woden GP 2_Data\StreamingAssets\Data\uselesslist.txt` (car power ranking),
+`...\CAR_SKINS\<BRAND>\<CAR>\*_base.png|tga` (skins), `...\Credits.txt`,
+`...\CustomMusic\` (user mp3s), `app.info`, `boot.config`.
+
+Tests: `cargo test --release` → tests/roundtrip.rs (save roundtrip on a temp copy;
+skips w/o local save) + tests/cars.rs (car DB parse / 25-25 skin match; skips w/o game).
 
 Known quirks: char/DateTime/Decimal stored as strings; member order preserved;
-paths are case-sensitive dot-separated member names, array indices numeric.
+paths are case-sensitive dot-separated member names, array indices numeric;
+`uselesslist.txt` is not valid UTF-8 (mojibake) - parser filters to ASCII
+structure around numbers. Builds are LOCAL ONLY (Windows); no CI workflows.

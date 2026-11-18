@@ -1,11 +1,11 @@
 //! Round-trip test against the local save, if one exists.
 //! Always operates on a temp copy - never touches the real save.
 
-use swgp2_save_editor::app;
+use swgp2_tool::app;
 use std::path::PathBuf;
 
 fn local_save() -> Option<PathBuf> {
-    swgp2_save_editor::save::default_save_path(0).filter(|p| p.exists())
+    swgp2_tool::save::default_save_path(0).filter(|p| p.exists())
 }
 
 #[test]
@@ -21,7 +21,7 @@ fn load_dump_store_roundtrip() {
 
     // set Economy to its current value -> forces a full read/write/verify cycle
     let g = app::load(&tmp).unwrap();
-    let econ = swgp2_save_editor::save::get_path(&g, "Economy")
+    let econ = swgp2_tool::save::get_path(&g, "Economy")
         .map(|v| v.as_i64().unwrap_or(0))
         .unwrap_or(0);
     app::save_with_backup(&tmp, &[("Economy".to_string(), serde_json::json!(econ))])
