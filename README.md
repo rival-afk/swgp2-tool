@@ -70,11 +70,7 @@ navigation across a car's skins.
 
 ### Wiki
 
-Built-in reference compiled from the game's own data files: the official
-25-car power ranking (uselesslist.txt) with CV/top speed/year and rally class,
-brand catalog from CAR_SKINS, all 8 championships with best-car picks (by
-official CV/speed), plus tips. No invented meta - everything is the game's
-data, class-restricted championships without official stats say so.
+Built-in reference compiled from the game's own data files: all 200 shop cars with their dealership preview images (from the game's own `CarThumbnails` folder - mapped 1:1 to your save's CarID), full dealer filter, real-world counterparts where catalogued (community IGCD baseline), official power stats where the game publishes them (`uselesslist.txt`), plus full lists of championships and tracks with best-car recommendations. No invented meta - everything is the game's data, class-restricted (BTC/DTC/JTC) entries without official stats say so.
 
 ### About
 

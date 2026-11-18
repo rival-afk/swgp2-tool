@@ -6,9 +6,9 @@ Everything save-related works on a parsed **Graph**; JSON is only a view/interch
 ```
 src/bin/swgp2-tool.rs  GUI (eframe/egui, 7z-style). run: `swgp2-tool`  (no args)
                         menu bar + toolbar(Load/Reload/Save) + left rail sections:
-                        Save Editor | Cars | Car Skins | Game | About
+                        Save Editor | Cars | Car Skins | Wiki | Game | Reset | About
                         top toolbar Save buttons act on current save; quick cheats;
-                        cars table sortable; PNG/TGA previews via `image` crate
+                        cars table sortable; PNG/TGA previews via `image` crate;`n                        Wiki: gallery of ALL 200 shop cars (thumbnail images from`n                        CarThumbnails IMD<id>.SW = save CarID), championships + tracks
 src/bin/swgp2-tui.rs   TUI (ratatui/crossterm). run: `swgp2-tui`        (no args)
         │ both call ▼
 src/app.rs            shared front-end logic (flag-free)
@@ -37,9 +37,11 @@ src/tool/            game-data side of the tool (no GUI deps)
              under CAR_SKINS/<BRAND>/<CAR> (case/alnum-insensitive); 25/25 match on install
   skins.rs   SkinEntry scan(skins_root) - every .png/.tga/.jpg under CAR_SKINS, kind=Render|Mask
   settings.rs settings.json in %APPDATA%/swgp2-tool - persists chosen game_dir
-  wiki.rs      Wiki content from game files: CHAMPIONSHIPS table (8 leagues,
-             kind Rally/Circuit/Touring/Beginner + picks), rally_cars/circuit_cars
-             sort helpers, TIPS list, sources cited in-app
+  wiki.rs      Wiki content from game files: CHAMPIONSHIPS + TRACKS tables (8 leagues
+             kind Rally/Circuit/Touring/Beginner + picks), 200-car catalog with
+             dealer-compatible unicode dealer names (Original_names.txt), TIPS list`n  catalog.rs   EMBEDDED 200-car catalog (id=DEALER#MODEL tables) + IMD<id>.SW
+             thumbnail loader (PNG inside .SW container) + uselesslist stats merge
+  catalog.txt  200-line embedded catalog data (id|DEALER|MODEL|RALLY|REAL-WORLD-NAME)
         │ uses ▼
 src/save.rs           high-level save handling (all errors = SaveError(String))
   load(path) → (Graph, raw)       read → crypto::decrypt → nrbf::parse
@@ -67,7 +69,7 @@ byte-identical (tested). Whole-graph dump → backup → AES-write → re-parse 
 JSON-compare verify remains as a final guard; restore-on-failure is automatic.
 
 Safety model: game must be CLOSED (it overwrites saves on exit). Backups live in
-`<save dir>\Backups\*.savbak`. `save_with_backup` is the only write path that any
+`<save dir>\Backups\*.savbak`. `patch_save` is the only write path that any
 front-end uses for user data — do not bypass it.
 
 Game assets consumed (portable Unity install, e.g. `F:\games\SWGP2`):

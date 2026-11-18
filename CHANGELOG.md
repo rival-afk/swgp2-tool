@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.4.0 - 2026-11-18
+
+- **Wiki Cars page rebuilt**: now shows ALL 200 shop cars (from the game's own
+  `StreamingAssets/BrandLogos/Original_names.txt` + dealership preview images
+  from `StreamingAssets/CarThumbnails/IMD*.SW`, which map 1:1 to the save's
+  CarID). Filter by dealer or text, click any card for full specs, real-world
+  counterpart (community IGCD list where catalogued), official ranking when the
+  game ranks it, dealer, class, rally variant, skin folder.
+- **New Tracks page**: every race/event/track/stage from the championships
+  screen, grouped with class badges, and recommended cars for each.
+- Dealer filter, game-preview images load everywhere in the wiki, dealer
+  details are expanded.
+
 ## 3.3.0 - 2026-11-18
 
 - New **Wiki** section: in-game reference built from the game's own data files -
