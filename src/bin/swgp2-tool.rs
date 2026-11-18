@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use swgp2_tool::app;
 use swgp2_tool::save;
-use swgp2_tool::tool::{cars, game, settings, skins};
+use swgp2_tool::tool::{cars, game, reset, settings, skins};
 
 fn main() -> eframe::Result<()> {
     if std::env::args().len() > 1 {
@@ -58,6 +58,7 @@ enum Section {
     Cars,
     Skins,
     Game,
+    Reset,
     About,
 }
 
@@ -68,6 +69,7 @@ impl Section {
             Section::Cars => "Cars",
             Section::Skins => "Car Skins",
             Section::Game => "Game",
+            Section::Reset => "Reset Saves",
             Section::About => "About",
         }
     }
@@ -126,6 +128,11 @@ struct Tool {
 
     // --- cached game info
     game_info: Option<Result<game::GameInfo, String>>,
+
+    // --- reset saves
+    reset_armed: bool,
+    archives: Vec<reset::ResetArchive>,
+    archive_sel: usize,
 }
 
 impl Tool {
@@ -167,7 +174,11 @@ impl Tool {
             selected_skin_images: Vec::new(),
             selected_skin_image: 0,
             game_info,
+            reset_armed: false,
+            archives: Vec::new(),
+            archive_sel: 0,
         };
+        t.refresh_archives();
         t.reload_save_slots();
         t.load_cars_and_skins();
         if game_dir.is_some() {
@@ -182,6 +193,68 @@ impl Tool {
     // ------------------------------------------------------------------
     fn msg(&mut self, text: impl Into<String>, ok: bool) {
         self.message = (text.into(), ok);
+    }
+
+    fn refresh_archives(&mut self) {
+        self.archives = reset::save_dir().map(|d| reset::list_archives(&d)).unwrap_or_default();
+        if self.archive_sel >= self.archives.len() {
+            self.archive_sel = 0;
+        }
+    }
+
+    fn do_full_reset(&mut self) {
+        let Some(dir) = reset::save_dir() else {
+            self.msg("cannot locate the save folder", false);
+            return;
+        };
+        match reset::reset_all(&dir) {
+            Ok((archive, n)) => {
+                self.msg(
+                    format!("reset done - {n} save(s) archived to {}", archive.dir.display()),
+                    true,
+                );
+                self.reset_armed = false;
+                self.save_path = None;
+                self.fields.clear();
+                self.dirty = false;
+                self.refresh_archives();
+                self.refresh_game_info();
+            }
+            Err(e) => {
+                self.msg(format!("reset failed: {e}"), false);
+                self.reset_armed = false;
+                self.refresh_archives();
+            }
+        }
+    }
+
+    fn restore_selected_archive(&mut self) {
+        let Some(dir) = reset::save_dir() else { return };
+        let Some(archive) = self.archives.get(self.archive_sel).cloned() else {
+            self.msg("no archive selected", false);
+            return;
+        };
+        match reset::restore_archive(&dir, &archive) {
+            Ok(n) => {
+                self.msg(format!("restored {n} save(s) from {}", archive.dir.display()), true);
+                self.reload_save();
+                self.refresh_archives();
+                self.refresh_game_info();
+            }
+            Err(e) => self.msg(format!("restore failed: {e}"), false),
+        }
+    }
+
+    fn delete_selected_archive(&mut self) {
+        let Some(archive) = self.archives.get(self.archive_sel).cloned() else { return };
+        match reset::delete_archive(&archive) {
+            Ok(()) => {
+                self.msg(format!("archive {} deleted forever", file_name(&archive.dir)), true);
+                self.refresh_archives();
+                self.refresh_game_info();
+            }
+            Err(e) => self.msg(format!("delete failed: {e}"), false),
+        }
     }
 
     fn refresh_game_info(&mut self) {
@@ -405,6 +478,11 @@ impl eframe::App for Tool {
                         ui.close_menu();
                     }
                     ui.separator();
+                    if ui.button("Reset ALL saves…").clicked() {
+                        self.section = Section::Reset;
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     if ui.button("Dump save to JSON…").clicked() {
                         self.dump_to_file();
                         ui.close_menu();
@@ -502,7 +580,7 @@ impl eframe::App for Tool {
             .resizable(false)
             .show(ctx, |ui| {
                 ui.add_space(6.0);
-                for s in [Section::Save, Section::Cars, Section::Skins, Section::Game, Section::About] {
+                for s in [Section::Save, Section::Cars, Section::Skins, Section::Game, Section::Reset, Section::About] {
                     let selected = self.section == s;
                     let btn = egui::Button::new(egui::RichText::new(s.label()).size(15.0))
                         .min_size(egui::vec2(120.0, 34.0))
@@ -522,6 +600,7 @@ impl eframe::App for Tool {
             Section::Cars => self.cars_section(ui, ctx),
             Section::Skins => self.skins_section(ui, ctx),
             Section::Game => self.game_section(ui),
+            Section::Reset => self.reset_section(ui),
             Section::About => self.about_section(ui),
         });
     }
@@ -1063,6 +1142,111 @@ impl Tool {
                 ui.label("Set the game folder above to see details.");
             }
         }
+    }
+
+    // --------------------------------------------------- reset section
+    fn reset_section(&mut self, ui: &mut egui::Ui) {
+        let Some(dir) = reset::save_dir() else {
+            ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "cannot locate the save folder");
+            return;
+        };
+        ui.add_space(6.0);
+
+        // current saves
+        ui.group(|ui| {
+            ui.strong("Save folder");
+            ui.separator();
+            ui.small(dir.display().to_string());
+            ui.add_space(4.0);
+            let saves = reset::saves_in(&dir);
+            if saves.is_empty() {
+                ui.colored_label(egui::Color32::from_rgb(0, 150, 60), "no .sav files - the next game start creates fresh saves");
+            } else {
+                egui::Grid::new("current_saves").num_columns(4).spacing([14.0, 3.0]).show(ui, |ui| {
+                    ui.strong("file");
+                    ui.strong("size");
+                    ui.strong("modified");
+                    ui.end_row();
+                    for p in &saves {
+                        let meta = std::fs::metadata(p).ok();
+                        ui.label(file_name(p));
+                        ui.label(meta.as_ref().map(|m| fmt_size(m.len())).unwrap_or_else(|| "?".into()));
+                        ui.label(fmt_time(meta.and_then(|m| m.modified().ok())));
+                        ui.end_row();
+                    }
+                });
+            }
+        });
+
+        ui.add_space(8.0);
+
+        // reset action
+        ui.group(|ui| {
+            ui.strong("Reset ALL saves");
+            ui.separator();
+            ui.label("Deletes every .sav in the save folder. Before deleting, all saves are archived");
+            ui.label("into Backups\\FullReset-<stamp> - you can restore them below at any time.");
+            ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "The game must be CLOSED while resetting, or it will re-save over your fresh state.");
+            ui.add_space(6.0);
+
+            if self.reset_armed {
+                ui.group(|ui| {
+                    ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "Really reset ALL saves?");
+                    ui.horizontal(|ui| {
+                        if ui.add(egui::Button::new(egui::RichText::new("Yes, archive & delete").strong())).clicked() {
+                            self.do_full_reset();
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.reset_armed = false;
+                        }
+                    });
+                });
+            } else {
+                let saves = reset::saves_in(&dir);
+                let btn = egui::Button::new(egui::RichText::new(format!("Reset ALL saves ({} file(s))…", saves.len())).size(14.0))
+                    .fill(egui::Color32::from_rgb(245, 220, 220));
+                if ui.add_enabled(!saves.is_empty(), btn).clicked() {
+                    self.reset_armed = true;
+                }
+            }
+        });
+
+        ui.add_space(8.0);
+
+        // recovery archives
+        ui.group(|ui| {
+            ui.strong("Recovery archives");
+            ui.separator();
+            if self.archives.is_empty() {
+                ui.label("No reset archives yet.");
+            } else {
+                egui::ComboBox::from_id_salt("archives")
+                    .selected_text(
+                        self.archives
+                            .get(self.archive_sel)
+                            .map(|a| format!("{}  ({} file(s), {})", file_name(&a.dir), a.files.len(), fmt_size(a.total_size)))
+                            .unwrap_or_else(|| "?".into()),
+                    )
+                    .show_ui(ui, |ui| {
+                        for (i, a) in self.archives.clone().iter().enumerate() {
+                            ui.selectable_value(
+                                &mut self.archive_sel,
+                                i,
+                                format!("{}  ({} file(s), {})", file_name(&a.dir), a.files.len(), fmt_size(a.total_size)),
+                            );
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    if ui.button("Restore selected archive").clicked() {
+                        self.restore_selected_archive();
+                    }
+                    if ui.button("Delete archive forever").clicked() {
+                        self.delete_selected_archive();
+                    }
+                });
+                ui.small("Restoring moves your current saves aside into a Pre-restore archive first - nothing is ever silently overwritten.");
+            }
+        });
     }
 
     // --------------------------------------------------- about section

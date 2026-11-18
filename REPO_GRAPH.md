@@ -26,6 +26,11 @@ src/tool/            game-data side of the tool (no GUI deps)
   game.rs    detect_game_dir() - shallow scan of drive roots for "Super Woden GP 2.exe"
              game_info(dir)      - product/company/boot.config/exe mtime/skin-save counts
              streaming_data_dir / skins_root / custom_music_dir paths
+  reset.rs   save_dir(), saves_in(dir), reset_all()
+             - stage_reset: copy all .sav → Backups\FullReset-<stamp>\, then delete
+             list_archives / restore_archive (current saves moved aside to a
+             FullReset-pre-restore-<stamp> archive first) / delete_archive
+             covered by tests/reset.rs
   cars.rs    CarEntry::parse_file(uselesslist.txt) - "[-R]NAME cv CV kmh Kmh || year"
              (leading "-R" = rally → folder key "R<NAME>"); attach_skin_dirs matches folders
              under CAR_SKINS/<BRAND>/<CAR> (case/alnum-insensitive); 25/25 match on install

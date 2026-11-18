@@ -82,7 +82,7 @@ pub fn backup_path(save_path: &Path) -> Result<PathBuf> {
     Ok(dir.join(format!("{stem}.{stamp}.savbak")))
 }
 
-fn chrono_stamp() -> String {
+pub fn chrono_stamp() -> String {
     // Avoid an external time crate; compute from system time.
         let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

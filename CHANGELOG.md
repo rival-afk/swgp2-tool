@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.1.0 - 2026-11-18
+
+- New **Reset Saves** section (menu: Tools → Reset ALL saves…): full wipe of
+  all saves with a recovery archive — every `.sav` is copied into
+  `Backups\FullReset-<stamp>\` before deletion (two-step confirm). Archives
+  can be restored later (current saves are moved aside into a pre-restore
+  archive first) or deleted forever. Covered by tests/reset.rs.
+
 ## 3.0.0 - 2026-11-18
 
 **Repo renamed** `rival-afk/swgp2-save-editor` → `rival-afk/swgp2-tool`.

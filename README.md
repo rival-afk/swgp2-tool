@@ -35,6 +35,13 @@ A `.sav` is a **.NET BinaryFormatter** stream encrypted with **AES-128-CBC**
   verification is restored from backup automatically
 - Quick cheats: `+1,000,000 Cr`, `Cr = 999,999,999`, `Coins = 999,999`
 
+### Reset Saves
+
+Full save wipe with a safety net: **Reset ALL saves** archives every `.sav`
+into `Backups\FullReset-<stamp>\` *before* deleting (two-step confirm).
+Recovery archives can be **restored** (current saves are moved aside first) or
+**deleted forever** from the same screen.
+
 ### Cars
 
 Power ranking parsed from the game's `uselesslist.txt` (25 cars with CV, top

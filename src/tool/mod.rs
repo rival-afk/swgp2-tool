@@ -2,5 +2,6 @@
 
 pub mod cars;
 pub mod game;
+pub mod reset;
 pub mod settings;
 pub mod skins;
