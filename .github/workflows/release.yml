@@ -1,0 +1,46 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            asset: swgp2.exe
+            tui_asset: swgp2-tui.exe
+          - os: ubuntu-latest
+            asset: swgp2-linux
+            tui_asset: swgp2-tui-linux
+          - os: macos-latest
+            asset: swgp2-macos
+            tui_asset: swgp2-tui-macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --release
+      - run: cargo build --release --bins
+      - name: Stage assets
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/release/swgp2.exe "dist/${{ matrix.asset }}"
+            cp target/release/swgp2-tui.exe "dist/${{ matrix.tui_asset }}"
+          else
+            cp target/release/swgp2 "dist/${{ matrix.asset }}"
+            cp target/release/swgp2-tui "dist/${{ matrix.tui_asset }}"
+            chmod +x "dist/${{ matrix.asset }}" "dist/${{ matrix.tui_asset }}"
+          fi
+      - name: Upload to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" dist/* --clobber
