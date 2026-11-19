@@ -103,6 +103,8 @@ fn tools() -> Vec<ToolDef> {
     t.push(ToolDef { name: "ranked_cars", description: "The game's official 25-car power ranking (uselesslist.txt)", schema: obj_schema(json!({}), &[]), handler: h_ranked_cars });
 
     t.push(ToolDef { name: "file_info", description: "File size/mtime/extension + magic-byte sniff (PE, PNG, TGA, NRBF/BinaryFormatter, zlib, zip, ...) + entropy", schema: obj_schema(json!({"path": {"type": "string"}}), &["path"]), handler: h_file_info });
+    t.push(ToolDef { name: "analyze_file", description: "Deep sniff: type detection (PE/NRBF/Unity SerializedFile/...), entropy, and a content summary for known formats (PE sections/imports/exports)", schema: obj_schema(json!({"path": {"type": "string"}}), &["path"]), handler: h_analyze_file });
+    t.push(ToolDef { name: "pe_info", description: "Full PE dump: machine/characteristics/timestamp/sections/exports/imports/subsystem/entry point (works for exe and dll)", schema: obj_schema(json!({"path": {"type": "string"}}), &["path"]), handler: h_pe_info });
     t.push(ToolDef { name: "file_hexdump", description: "Hex dump of a byte range of a file", schema: obj_schema(json!({"path": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}, "length": {"type": "integer", "minimum": 1, "maximum": 65536}}), &["path"]), handler: h_file_hexdump });
     t.push(ToolDef { name: "file_strings", description: "Printable ASCII/UTF-16 strings in a file (capped)", schema: obj_schema(json!({"path": {"type": "string"}, "min_len": {"type": "integer", "minimum": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 10000}}), &["path"]), handler: h_file_strings });
     t.push(ToolDef { name: "file_search", description: "Scan a file for a byte pattern with ?? wildcards, e.g. '4D 5A ?? ?? 90'", schema: obj_schema(json!({"path": {"type": "string"}, "pattern": {"type": "string"}, "max_results": {"type": "integer", "minimum": 1, "maximum": 10000}}), &["path", "pattern"]), handler: h_file_search });
@@ -385,7 +387,7 @@ fn h_file_info(args: &Value) -> Result<String, String> {
     let p = Path::new(&path);
     let meta = std::fs::metadata(p).map_err(|e| e.to_string())?;
     let raw = std::fs::read(p).map_err(|e| e.to_string())?;
-    let head = &raw[..raw.len().min(16)];
+    let head = &raw[..raw.len().min(64)];
     let magic = sniff_magic(head);
     let mut freq = [0u64; 256];
     for &b in &raw {
@@ -499,6 +501,37 @@ fn h_file_search(args: &Value) -> Result<String, String> {
         }
     }
     Ok(serde_json::to_string_pretty(&json!({ "path": path, "count": hits.len(), "offsets": hits })).unwrap())
+}
+
+fn h_analyze_file(args: &Value) -> Result<String, String> {
+    let path = path_arg(args, "path")?;
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(crate::tool::analyze::summary(&path, &bytes))
+}
+
+fn h_pe_info(args: &Value) -> Result<String, String> {
+    let path = path_arg(args, "path")?;
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let pe = crate::tool::analyze::pe_info(&bytes)?;
+    Ok(serde_json::to_string_pretty(&json!({
+        "path": path,
+        "machine": format!("{:#06x}", pe.machine),
+        "characteristics": format!("{:#06x}", pe.characteristics),
+        "is_dll": pe.is_dll,
+        "is_executable": pe.is_executable,
+        "timestamp": pe.timestamp,
+        "sections": pe.num_sections,
+        "entry_point": format!("{:#x}", pe.entry_point),
+        "image_base": format!("{:#x}", pe.image_base),
+        "subsystem": pe.subsystem,
+        "section_list": pe.sections.iter().map(|s| json!({
+            "name": s.name, "va": format!("{:#x}", s.va),
+            "vsize": s.vsize, "raw_size": s.raw_size, "raw_offset": s.raw_offset,
+        })).collect::<Vec<_>>(),
+        "imports": pe.imports.iter().map(|(n, c)| json!({ "dll": n, "functions": c })).collect::<Vec<_>>(),
+        "exports": pe.exports,
+    }))
+    .unwrap())
 }
 
 fn h_file_copy(args: &Value) -> Result<String, String> {

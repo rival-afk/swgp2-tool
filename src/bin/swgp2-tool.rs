@@ -170,7 +170,6 @@ struct Tool {
     archive_sel: usize,
 
     // --- inject / in-game mod
-    inject_status: String,
     inject_log: String,
 
     // --- wiki
@@ -232,7 +231,6 @@ impl Tool {
             reset_armed: false,
             archives: Vec::new(),
             archive_sel: 0,
-            inject_status: String::new(),
             inject_log: String::new(),
             wiki_tab: WikiTab::Cars,
             wiki_car_filter: String::new(),
