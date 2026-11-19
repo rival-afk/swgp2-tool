@@ -48,9 +48,10 @@ Recovery archives can be **restored** (current saves are moved aside first) or
 ### Cars
 
 Power ranking parsed from the game's `uselesslist.txt` (25 cars with CV, top
-speed and year), with **PNG/TGA preview of the actual car skin** from
-`StreamingAssets/CAR_SKINS`. Sortable columns, live filter, rally-car handling —
-100% of the ranked cars resolve to their skin folders.
+speed and year). Since 3.5 the list is a **4-column paged card catalog**
+(12 cards/page) with **skin previews** pulled from `StreamingAssets/CAR_SKINS`,
+filter, sorting and rally-car handling — 100% of the ranked cars resolve to
+their skin folders. Click a card to open the full card with all skins.
 
 ### Car Skins
 
@@ -70,7 +71,7 @@ navigation across a car's skins.
 
 ### Wiki
 
-Built-in reference compiled from the game's own data files: all 200 shop cars with their dealership preview images (from the game's own `CarThumbnails` folder - mapped 1:1 to your save's CarID), full dealer filter, real-world counterparts where catalogued (community IGCD baseline), official power stats where the game publishes them (`uselesslist.txt`), plus full lists of championships and tracks with best-car recommendations. No invented meta - everything is the game's data, class-restricted (BTC/DTC/JTC) entries without official stats say so.
+Built-in reference compiled from the game's own data files — the wiki is **built live from the game's files** (level0 is parsed on the fly): all 200 shop cars with dealership preview images (from the game's own `CarThumbnails` folder - mapped 1:1 to your save's CarID), full dealer filter, real-world counterparts where catalogued (community IGCD baseline), official power stats where the game publishes them (`uselesslist.txt`); plus full lists of championships, **weekends**, **rallies** (championships and stages) and **endurance races** (24H/12H/8H/6H) — every event with car recommendations filtered by the event's own restrictions (class/dealership) and ranked by CV, then top speed. No invented meta - everything is the game's data, class-restricted (BTC/DTC/JTC) entries without official stats say so.
 
 ### About
 
@@ -81,14 +82,15 @@ file on exit.
 
 ## Building from source
 
-Rust toolchain only:
+Rust toolchain only (the crate is a cargo workspace):
 
 ```
-cargo build --release
+cargo build --release          # the tool (GUI + TUI)
+cargo build --release -p swgp2-mod   # the in-game mod loader DLL
 ```
 
-produces `target/release/swgp2-tool[.exe]` (GUI) and `target/release/swgp2-tui[.exe]`
-— single static binaries, nothing else needed.
+produces `target/release/swgp2-tool[.exe]`, `target/release/swgp2-tui[.exe]`
+and `target/release/swgp2_mod.dll` — single static binaries, nothing else needed.
 
 Tests: `cargo test --release` (round-trip check on a temp copy of your save, a
 car-DB parse/skin-match check; both skip cleanly when the game isn't installed here).

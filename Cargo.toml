@@ -9,6 +9,9 @@ keywords = ["save-editor", "binaryformatter", "unity", "swgp2", "modding"]
 categories = ["game-engines"]
 default-run = "swgp2-tool"
 
+[workspace]
+members = [".", "mod/loader"]
+
 [lib]
 name = "swgp2_tool"
 path = "src/lib.rs"

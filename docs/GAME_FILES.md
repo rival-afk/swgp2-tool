@@ -119,6 +119,23 @@ save as an int32). Trust the stream, not the metadata signature.
 Some types are renamed to garbage (`.bc^aZa`a`bc`b]` etc.) — the CameraFilterPack
 third-party filters. Ignore them; game classes use readable names.
 
+## Mono runtime / Direct3D
+
+- The game runs on **Mono** (`MonoBleedingEdge\EmbedRuntime\mono-2.0-bdwgc.dll`)
+  and **Direct3D 11** (`d3d11.dll` + `dxgi.dll` confirmed loaded in a running
+  game; Unity 2021.3.29f1).
+- `mono-2.0-bdwgc.dll` exports the Mono embed API (`mono_get_root_domain`,
+  `mono_domain_assembly_open`, `mono_image_get_name`, `mono_class_from_name`,
+  `mono_runtime_invoke`, `mono_thread_attach`, `mono_method_get_header`,
+  `mono_class_get_method_from_name`, …) — plenty for native interop/injection.
+- The in-game mod uses **Unity IMGUI** (`OnGUI` window) rendered by the game
+  itself — no DX hook, no external window. Delivery: the tool injects
+  `swgp2_mod.dll` (native loader, `mod/loader/`), which loads `Swgp2Mod.dll`
+  into the game's Mono domain and calls `Swgp2Mod.Entry.Main()`.
+  The menu talks to the game through ordinary `MainCar` fields (see
+  `mod/Swgp2Mod.cs`). Logging to `%APPDATA%\swgp2-tool\mod.log`.
+- x86 Mono: `mono-2.0-bdwgc.dll` exports the whole embed API (1231 exports).
+
 ## Save files are the only writable game state we touch
 
 Everything else under `StreamingAssets` is read-only for the tool (we never

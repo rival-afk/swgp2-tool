@@ -1,0 +1,13 @@
+[package]
+name = "swgp2-mod"
+version = "0.1.0"
+edition = "2021"
+description = "Native loader for the SWGP2 mod - injected into the game, loads the managed Swgp2Mod.dll into Mono"
+license = "MIT"
+repository = "https://github.com/rival-afk/swgp2-tool"
+
+[lib]
+name = "swgp2_mod"
+crate-type = ["cdylib"]
+
+[dependencies]

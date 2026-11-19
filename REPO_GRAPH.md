@@ -1,6 +1,6 @@
 # REPO_GRAPH — swgp2-tool (read this instead of the source)
 
-Crate layout: `lib (swgp2_tool)` shared by two flag-free binaries.
+Crate layout: cargo workspace `members = [".", "mod/loader"]` - root lib (`swgp2_tool`) shared by two flag-free binaries + the in-game mod loader.
 Everything save-related works on a parsed **Graph**; JSON is only a view/interchange format.
 
 ```
@@ -8,7 +8,10 @@ src/bin/swgp2-tool.rs  GUI (eframe/egui). run: `swgp2-tool`  (no args)
                         menu bar + toolbar(Load/Reload/Save) + left rail sections:
                         Save Editor | Cars | Car Skins | Wiki | Game | Reset | About
                         top toolbar Save buttons act on current save; quick cheats;
-                        cars table sortable; PNG/TGA previews via `image` crate;`n                        Wiki: gallery of ALL 200 shop cars (thumbnail images from`n                        CarThumbnails IMD<id>.SW = save CarID), championships + tracks
+                        cars: 4-column paged card catalog (12/page) + skin preview;
+                        Wiki: cars gallery (200 shop cars), championships (class-
+                        filtered), live Tracks/Weekends/Endurance/Rallies (parsed
+                        from level0 on the fly), tips
 src/bin/swgp2-tui.rs   TUI (ratatui/crossterm). run: `swgp2-tui`        (no args)
         │ both call ▼
 src/app.rs            shared front-end logic (flag-free)
@@ -38,10 +41,24 @@ src/tool/            game-data side of the tool (no GUI deps)
   skins.rs   SkinEntry scan(skins_root) - every .png/.tga/.jpg under CAR_SKINS, kind=Render|Mask
   settings.rs settings.json in %APPDATA%/swgp2-tool - persists chosen game_dir
   wiki.rs      Wiki content from game files: CHAMPIONSHIPS + TRACKS tables (8 leagues
-             kind Rally/Circuit/Touring/Beginner + picks), 200-car catalog with
-             dealer-compatible unicode dealer names (Original_names.txt), TIPS list`n  catalog.rs   EMBEDDED 200-car catalog (id=DEALER#MODEL tables) + IMD<id>.SW
-             thumbnail loader (PNG inside .SW container) + uselesslist stats merge
+              kind Rally/Circuit/Touring/Beginner + class filter BTC/DTC/JTC,
+              ranked by CV desc then speed desc), 200-car catalog with
+              dealer-compatible unicode dealer names (Original_names.txt), TIPS list
+              (tracks available as fallback if the live parser fails)
+  catalog.rs   EMBEDDED 200-car catalog (id=DEALER#MODEL tables) + IMD<id>.SW
+              thumbnail loader (PNG inside .SW container) + uselesslist stats merge
   catalog.txt  200-line embedded catalog data (id|DEALER|MODEL|RALLY|REAL-WORLD-NAME)
+  events.rs    * live parser for the game's event records in level* (anchor
+              `01 00 00 00 01 00 00 00` + u32 K + lp-string name):
+              K 602=weekend, 271=track, 262=pilot, 86=cup, 53=restriction tag,
+              529=weather. Groups restrictions per event; used by the
+              Tracks/Weekends/Endurance/Rallies wiki pages
+  inject.rs    * Win32 DLL injector (CreateRemoteThread + kernel32!LoadLibraryW);
+              process finder (ToolHelp), module list (ToolHelp), raw memory
+              read/write/search (VirtualQueryEx + wildcard pattern)
+  loader/      (mod/loader/) swgp2-mod native cdylib - injected into the game;
+              loads managed `mod/Swgp2Mod.dll` into Mono via the embed API
+              (domain_assembly_open -> Swgp2Mod.Entry.Main); zero dependencies
         │ uses ▼
 src/save.rs           high-level save handling (all errors = SaveError(String))
   load(path) → (Graph, raw)       read → crypto::decrypt → nrbf::parse

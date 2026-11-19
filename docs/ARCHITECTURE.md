@@ -5,17 +5,18 @@ will silently kill the save editor if you don't know it**. Written 2026-11-19.
 
 ## What this repo is
 
-Single Rust crate `swgp2-tool` (lib `swgp2_tool`) → two user binaries + one
-MCP server binary (added 2026-11):
+Cargo **workspace** (root package `swgp2-tool` + member `mod/loader`):
 
-| Binary        | Stack                | Purpose                              |
+| Binary/crate | Stack                | Purpose                              |
 |---------------|----------------------|--------------------------------------|
 | `swgp2-tool`  | eframe/egui (GUI)    | main GUI, no flags, single window    |
 | `swgp2-tui`   | ratatui (terminal)   | same save editor in a terminal       |
 | `swgp2-mcp`   | stdio JSON-RPC (MCP) | agent-facing control of the game/save|
+| `swgp2-mod`   | native cdylib        | injected loader: loads managed `Swgp2Mod.dll` into the game's Mono and calls `Entry.Main()` (installs the in-game menu) |
 
 The crate is a plain library crate; front-ends are thin. **All save writes go
 through `src/app.rs::patch_save`** — never re-serialize a save any other way.
+`mod/loader` is intentionally dependency-free (hand-written FFI).
 
 ## Build — the two traps that will eat your time
 
@@ -26,7 +27,8 @@ through `src/app.rs::patch_save`** — never re-serialize a save any other way.
 
    ```powershell
    $env:CARGO_TARGET_DIR="C:\Users\stude\swgp2-target"
-   cargo build --release
+   cargo build --release        # root package only
+   cargo build --release -p swgp2-mod   # the in-game loader DLL
    ```
 
    `target/` is gitignored anyway. Do not try to "fix" the OneDrive path;
@@ -68,20 +70,25 @@ src/tool/             game-data side (no GUI deps):
   catalog.rs          embedded 200-car catalog + IMD<id>.SW thumbnail loader
   catalog.txt         200-line embedded id|DEALER|MODEL|RALLY|REAL data
   skins.rs            skin file scan (CAR_SKINS)
-  wiki.rs             CHAMPIONSHIPS / TRACKS / TIPS (curated) + best_picks(kind, n)
+  wiki.rs             CHAMPIONSHIPS / TRACKS / TIPS (curated) + best_picks(kind, n) (class-filtered)
   events.rs           ★ live level-file parser: weekends / cups / tracks / pilots /
-                        weather / restrictions → wiki pages are built from game data
-  gamedata.rs         ★ shared low-level game-file scan helpers (lp-strings, anchor scan)
-  inject.rs           ★ Win32 DLL injector (CreateRemoteThread+LoadLibraryW) — cfg(windows)
-  process.rs          ★ Win32 memory read/write/search, module list — cfg(windows)
-  unity.rs            ★ minimal Unity SerializedFile parser + Mesh reader (map → .glb)
-  glb.rs              ★ glTF 2.0 binary (.glb) writer
+                        weather / restrictions → wiki pages built from game data
+  inject.rs           ★ Win32 DLL injector (CreateRemoteThread+LoadLibraryW); process
+                        finder, module list, memory read/write/search (wildcard pattern)
   settings.rs         settings.json in %APPDATA%/swgp2-tool
   reset.rs            full-save wipe with recovery archives
+  unity.rs            (pending) minimal Unity SerializedFile parser + Mesh reader (map → .glb)
+  glb.rs              (pending) glTF 2.0 binary (.glb) writer
+  analyze.rs          (pending) file_info/hexdump/strings/search/PE/NRBF probe/SW-thumbnail decode
+mod/
+  Swgp2Mod.cs         managed C# mod source: Unity IMGUI menu (car power, freeze Life, etc.)
+  Swgp2Mod.dll        compiled mod, committed intentionally (build without Roslyn)
+  loader/             swgp2-mod native cdylib (zero deps): waits for mono-2.0-bdwgc.dll,
+                       mono_domain_assembly_open(Swgp2Mod.dll) → Entry.Main()
 src/bin/swgp2-tool.rs GUI
 src/bin/swgp2-tui.rs  TUI
-src/bin/swgp2-mcp.rs  MCP server (stdio JSON-RPC 2.0) — the "do anything" agent surface
-src/mcp.rs            MCP framework: registry, schemas, dispatch
+src/bin/swgp2-mcp.rs  (pending) MCP server (stdio JSON-RPC 2.0) — the "do anything" agent surface
+src/mcp.rs            (pending) MCP framework: registry, schemas, dispatch
 ```
 
 ## Data flow

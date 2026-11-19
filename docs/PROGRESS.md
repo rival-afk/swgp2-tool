@@ -62,57 +62,54 @@ GUI → `Cars` теперь: сетка 4 колонки × N страниц (12
 - `WikiTab` расширена; живые события кэшируются в `wiki_events` (парс один раз
   на папку игры, сбрасывается при смене Game Folder).
 
-### In-game меню (задача 2, часть b) — **скелет, не работает**
-- `mod/Swgp2Mod.cs` — Unity-мод на C#: окно `OnGUI` в игре (F10/кнопка
-  "SWGP2 ≡"), слайдер ускорения (x1..5 CarPower), слайдер топ-скорости,
-  **Freeze durability** (Life фиксируется), слайдер прочности (1..200% от
-  снапшота), Turbo, Refill fuel, Repair. Доступ к `MainCar` через reflection
-  (устойчиво к переименованию), find через `FindObjectOfType(Type)` с
-  generic-fallback. Логирует в `%APPDATA%\swgp2-tool\mod.log`.
-- **Не скомпилировано и не внедрено**: нужно собрать Roslyn'ом
-  (`E:\Soft\Visual Studio\MSBuild\Current\Bin\Roslyn\csc.exe`) против
-  `Managed\mscorlib.dll`, `UnityEngine.CoreModule.dll`,
-  `UnityEngine.IMGUIModule.dll`, `Assembly-CSharp.dll`; затем нативный
-  лоадер (Rust cdylib) в `mono-2.0-bdwgc.dll` (exported mono-* API),
-  и инжект через наш `inject` (CreateRemoteThread + LoadLibraryW).
-- Игра: **Direct3D 11** (d3d11.dll + dxgi.dll подтверждено запущенной игрой),
-  mono-2.0-bdwgc.dll, Unity 2021.3.29f1. Игра уже **запускалась на этой машине**
-  (PID 6208, модули проверены), сейв **забекаплен** в
-  `%USERPROFILE%\AppData\LocalLow\ViJuDa\Super Woden GP 2\Save\Backups\Supersave0.pre-test-*.savbak`.
-- Cheat Engine установлен (`C:\Program Files\Cheat Engine`) — пригодится
-  для верификации адресов.
-- Поля MainCar (из Assembly-CSharp.dll metadata): `CarPower` (ускорение),
-  `ActualPower`, `PowerOffset`, `CarTopSpeed`, `Life` (прочность),
-  `LifeRestoreRate`, `Fuel`, `Turbo`, `SpeedMultiplier`, `Grip`,
-  `ResistanceFactor`, `SlipStreamLevel`, `PlayerIndex`, `Rival` (отличать
-  игрока от ИИ).
+### In-game меню (задача 2, часть b) — **РАБОТАЕТ, проверено**
+- `mod/Swgp2Mod.cs` → `mod/Swgp2Mod.dll` (**закоммичен**, собирается Roslyn'ом
+  `E:\Soft\Visual Studio\MSBuild\Current\Bin\Roslyn\csc.exe` против
+  mscorlib/CoreModule/IMGUIModule/Assembly-CSharp игры).
+- Меню: окно OnGUI в Unity (F10/«SWGP2 ≡» в углу), слайдер Acceleration x1..5
+  (CarPower), Top speed (CarTopSpeed), **Freeze durability** (Life
+  замораживается на снапшоте), слайдер Durability 1..200%, Turbo, Refill fuel,
+  Repair. Выбор игроковой машины — через `FindObjectsOfType(Type)` + фильтр
+  `Rival==false`. Доступ к `MainCar` через reflection. Лог: `%APPDATA%\swgp2-tool\mod.log`.
+- Нативный загрузчик: `mod/loader/` (`swgp2-mod.dll`, cdylib, **ноль зависимостей**):
+  DllMain → CreateThread → ждёт `mono-2.0-bdwgc.dll` → `mono_get_root_domain` →
+  `mono_thread_attach` → `mono_domain_assembly_open(%APPDATA%\swgp2-tool\mod\Swgp2Mod.dll)`
+  → класс `Swgp2Mod.Entry` → `mono_runtime_invoke(Main)`.
+- Инжектор: `src/tool/inject.rs` — поиск процесса, инжекция
+  (CreateRemoteThread+LoadLibraryW на kernel32!LoadLibraryW), список модулей,
+  память (region walk, read/write, wildcard-поиск по шаблону).
+- **Проверено вживую**: игра (PID 7804) + `inject_test` → `mod loaded`,
+  игра стабильна, ошибок GUI в mod.log нет. Два инстанса, оба ок. Игра
+  **Direct3D 11** (d3d11.dll + dxgi.dll), Mono 2.0 (`mono-2.0-bdwgc.dll`).
+- Сейв забекаплен: `%USERPROFILE%\AppData\LocalLow\ViJuDa\Super Woden GP 2\Save\Backups\Supersave0.pre-test-*.savbak`.
+- Поля `MainCar`: CarPower (ускорение), ActualPower, PowerOffset, CarTopSpeed,
+  Life (прочность), LifeRestoreRate, Fuel, Turbo, SpeedMultiplier, Grip,
+  ResistanceFactor, SlipStreamLevel, PlayerIndex, Rival (отличить игрока от ИИ).
+- **Осталось для полного цикла**: GUI-секция Inject (кнопки
+  Install/Inject/mod.log хвост) — не подключена; модификация доступна только
+  в этой сессии после инжекта (на каждый запуск игры — инжект заново).
 
 ## Осталось сделать (в порядке очереди)
 
-1. **Дособрать in-game меню**: скомпилировать `mod/Swgp2Mod.cs`, написать
-   нативный загрузчик `swgp2-mod` (Rust cdylib, DllMain → mono init →
-   `mono_image_open_full_from_file`/`mono_domain_assembly_open` → класс
-   `Swgp2Mod.Entry` → `mono_runtime_invoke(Main)`), добавить кнопку
-   «Install/Inject mod» в GUI (новая секция Inject/Mods), протестировать
-   в реальной игре (запуск → инжект → F10 → mod.log), затем в MCP.
+1. **GUI-секция Inject**: кнопки «Install mod» (записать embedded
+   `Swgp2Mod.dll` в `%APPDATA%\swgp2-tool\mod\`), «Inject mod now» (найти
+   запущенную игру, инжектнуть `swgp2_mod.dll` — брать рядом с exe или из
+   `%APPDATA%\swgp2-tool\mod\`), хвост `%APPDATA%\swgp2-tool\mod.log`,
+   статус "game running / mod loaded / error". `inject_mod_dll()` уже есть.
 2. **MCP-сервер** (`swgp2-mcp`, stdio JSON-RPC 2.0): общий набор инструментов
    «агент может делать с игрой то, что не задумывалось»: file_info/hexdump/
    strings/search, nrbf_probe/parse, save_get/set/dump/patch/backup/restore/
    verify, game_detect/info/launch, events_scan, wiki_*, process_find/modules/
-   memory_read/memory_write/memory_search, inject_dll, analyze_file, pe_info,
-   map→glb, bot routes, wiki_best_cars. Реализация: `src/mcp.rs` (фреймворк:
-   реестр, схемы, dispatch) + `src/bin/swgp2-mcp.rs` (main-loop).
-3. **Инжектор + анализатор файлов (Rust)**:
-   - `src/tool/inject.rs` — Win32: CreateRemoteThread+LoadLibraryW, поиск
-     процесса по имени, список модулей, чтение/запись/поиск памяти
-     (VirtualQueryEx, wildcard pattern), список модулей (EnumProcessModules).
+   memory_read/memory_write/memory_search, inject_dll, mod_install/mod_inject,
+   analyze_file, pe_info, map→glb, bot routes, wiki_best_cars. Реализация:
+   `src/mcp.rs` (фреймворк: реестр, схемы, dispatch) +
+   `src/bin/swgp2-mcp.rs` (main-loop).
+3. **Анализатор файлов (Rust)**:
    - `src/tool/unity.rs` — парсер Unity SerializedFile (format 22):
      заголовок BE-поля (`00 00 00 00 | 00 00 00 16 | dataOffset @20 | fileSize @28`),
-     таблица объектов (offset/size/classId). **Сейчас в процессе разбора** —
-     точный layout таблицы типов/объектов ещё не подтверждён байтами;
-     `m_DataOffset` берётся как int32 BE @20 (level0: 521199,
-     globalgamemanagers: 1329). Формат объекта/entry требует брут-форс
-     проверки «последний объект кончается в конце файла».
+     таблица объектов (offset/size/classId). **В процессе** — точный layout
+     типов/объектов ещё не подтверждён байтами; проверка «последний объект
+     кончается в конце файла».
    - `src/tool/glb.rs` — писатель glTF 2.0 binary (.glb) из Unity-мешей.
    - `src/tool/analyze.rs` — file_info, hexdump, strings, search, PE-дамп
      (секции/импорты/экспорты/машина), NRBF-проба, SW-thumbnail decode.
@@ -120,7 +117,7 @@ GUI → `Cars` теперь: сетка 4 колонки × N страниц (12
      `RouteStatus_`) — извлечение vector3-точек из записей по якорям
      (тот же record-формат), экспорт JSON/LineStrip GLB.
    - Карта → .glb: Mesh-объекты (classId 43) + Transform-иерархия +
-     `GLB` писатель. Проверка трианглов через trimesh (Python, pip).
+     GLB писатель. Проверка трианглов через trimesh (Python, pip).
 4. **Релизная сборка**: bump версии (Cargo.toml; Cargo.lock уже с поправкой
    3.3.0→3.4.0), CHANGELOG, README, REPO_GRAPH, удалить tag-scratch
    артефакты; задокументировать `mod/` в README.
@@ -141,8 +138,9 @@ GUI → `Cars` теперь: сетка 4 колонки × N страниц (12
   тяжёлого анализа применялся `C:\Users\stude\AppData\Local\Temp\opencode`
   (scratch-скрипты удалены; используй pycp `run_python_code` вместо них).
 - **git**: origin = https://github.com/rival-afk/swgp2-tool.git, ветка main.
-  Имена коммитов v3.x.0 по схеме «v3.4.0: …». Бинарники не коммитить, кроме
-  (возможно) `mod/Swgp2Mod.dll` — решить при финализации мода.
+  Имена коммитов v3.x.0 по схеме «v3.4.0: …». `mod/Swgp2Mod.dll` (10.5 KB)
+  **коммитится намеренно** — для самодостаточной сборки без Roslyn;
+  `mod/loader/swgp2-mod.dll` генерируется `cargo build --release -p swgp2-mod`.
 - **Сейв-редактор**: не менять `nrbf.rs` без зелёного roundtrip-теста;
   запись только через `app::patch_save`; игра должна быть закрыта при записи.
 

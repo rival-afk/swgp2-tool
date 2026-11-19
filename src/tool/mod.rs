@@ -4,6 +4,7 @@ pub mod cars;
 pub mod catalog;
 pub mod events;
 pub mod game;
+pub mod inject;
 pub mod reset;
 pub mod settings;
 pub mod skins;

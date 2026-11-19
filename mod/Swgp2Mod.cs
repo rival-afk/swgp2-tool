@@ -24,13 +24,25 @@ namespace Swgp2Mod
 {
     public static class Entry
     {
+        private static bool _loaded;
+
+        // Fallback for the Managed-folder delivery (harmless when using the
+        // injector; guarded against double-loading).
+        [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.AfterSceneLoad)]
+        public static void AutoStart()
+        {
+            Main();
+        }
+
         public static void Main()
         {
+            if (_loaded) return;
             try
             {
                 var host = new GameObject("Swgp2Mod_Host");
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.AddComponent<ModBehaviour>();
+                _loaded = true;
                 Log("mod loaded");
             }
             catch (Exception e)
@@ -86,23 +98,33 @@ namespace Swgp2Mod
             try
             {
                 var objType = typeof(UnityEngine.Object);
-                // non-generic overload avoids binding to a generic signature
-                var m = objType.GetMethod("FindObjectOfType", new[] { typeof(Type) });
-                if (m == null)
+                var carType = Type.GetType("MainCar, Assembly-CSharp");
+                if (carType == null) { Entry.Log("MainCar type not found"); return; }
+
+                // prefer FindObjectsOfType(Type) (all instances) so we can pick
+                // the player's car and not a rival's; fall back to FindObjectOfType.
+                var plural = objType.GetMethod("FindObjectsOfType", new[] { typeof(Type) });
+                if (plural != null)
                 {
-                    // generic overload fallback: FindObjectOfType<MainCar>()
-                    var carType = Type.GetType("MainCar, Assembly-CSharp");
-                    if (carType == null) { Entry.Log("MainCar type not found"); return; }
-                    var generic = objType.GetMethod("FindObjectOfType", new Type[0]);
-                    if (generic != null)
+                    var all = plural.Invoke(null, new object[] { carType }) as System.Collections.IEnumerable;
+                    if (all != null)
                     {
-                        var concrete = generic.MakeGenericMethod(carType);
-                        _car = concrete.Invoke(null, null);
+                        object first = null;
+                        foreach (var o in all)
+                        {
+                            if (first == null) first = o;
+                            var rival = GetField(o, "Rival");
+                            if (rival is bool r && !r) { _car = o; break; }
+                        }
+                        if (_car == null) _car = first; // no clear player car found - take the first
                     }
                 }
-                else
+                if (_car == null)
                 {
-                    _car = m.Invoke(null, new object[] { Type.GetType("MainCar, Assembly-CSharp") });
+                    var single = objType.GetMethod("FindObjectOfType", new[] { typeof(Type) });
+                    _car = single != null
+                        ? single.Invoke(null, new object[] { carType })
+                        : objType.GetMethod("FindObjectOfType", new Type[0])?.MakeGenericMethod(carType).Invoke(null, null);
                 }
             }
             catch (Exception e)

@@ -2697,6 +2697,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "swgp2-mod"
+version = "0.1.0"
+
+[[package]]
 name = "swgp2-tool"
 version = "3.4.0"
 dependencies = [
