@@ -93,15 +93,19 @@ GUI → `Cars` теперь: сетка 4 колонки × N страниц (12
 
 ## Осталось сделать (в порядке очереди)
 
-1. **MCP-сервер** (`swgp2-mcp`, stdio JSON-RPC 2.0): общий набор инструментов
-   «агент может делать с игрой то, что не задумывалось»: file_info/hexdump/
-   strings/search, nrbf_probe/parse, save_get/set/dump/patch/backup/restore/
-   verify, game_detect/info/launch, events_scan, wiki_*, process_find/modules/
-   memory_read/memory_write/memory_search, inject_dll, mod_install/mod_inject,
-   analyze_file, pe_info, map→glb, bot routes, wiki_best_cars. Реализация:
-   `src/mcp.rs` (фреймворк: реестр, схемы, dispatch) +
-   `src/bin/swgp2-mcp.rs` (main-loop).
-2. **Анализатор файлов (Rust)**:
+1. **MCP-сервер** — **ГОТОВ и проверен** (`swgp2-mcp.exe`, stdio JSON-RPC
+   2.0 NDJSON): initialize/ping/tools:list/tools:call + ~30 инструментов,
+   проверены живым прогоном (initialize/list/call save_slots/events_scan/
+   ranked_cars/file_info). Инструменты: save_slots/get/set/apply/backup/
+   backups/restore/verify/cheats (save_set/apply отказываются при запущенной
+   игре), game_info/game_launch, events_scan (живой парс level0),
+   wiki_best_cars, catalog_cars, ranked_cars, file_info (magic sniff +
+   entropy)/hexdump/strings/search/copy, process_find/modules,
+   memory_read/write/search (wildcard), inject_dll, mod_install/inject/status.
+   Подключение: `swgp2-mcp` в MCP-хосте (напр. `{"command": "swgp2-mcp"}`).
+2. **Анализатор файлов (Rust)** — `src/tool/unity.rs` (SerializedFile),
+   `src/tool/glb.rs` (GLB writer), `src/tool/analyze.rs` (file/PE/NRBF/SW)
+   — **не начат**.
    - `src/tool/unity.rs` — парсер Unity SerializedFile (format 22):
      заголовок BE-поля (`00 00 00 00 | 00 00 00 16 | dataOffset @20 | fileSize @28`),
      таблица объектов (offset/size/classId). **В процессе** — точный layout

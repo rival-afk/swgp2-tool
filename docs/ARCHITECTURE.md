@@ -7,12 +7,12 @@ will silently kill the save editor if you don't know it**. Written 2026-11-19.
 
 Cargo **workspace** (root package `swgp2-tool` + member `mod/loader`):
 
-| Binary/crate | Stack                | Purpose                              |
+| Binary        | Stack                | Purpose                              |
 |---------------|----------------------|--------------------------------------|
 | `swgp2-tool`  | eframe/egui (GUI)    | main GUI, no flags, single window    |
 | `swgp2-tui`   | ratatui (terminal)   | same save editor in a terminal       |
 | `swgp2-mcp`   | stdio JSON-RPC (MCP) | agent-facing control of the game/save|
-| `swgp2-mod`   | native cdylib        | injected loader: loads managed `Swgp2Mod.dll` into the game's Mono and calls `Entry.Main()` (installs the in-game menu) |
+| `swgp2-mod`   | native cdylib        | injected loader: loads managed `Swgp2Mod.dll` into the game's Mono and calls `Entry.Main()` (installs the in-game cheats) |
 
 The crate is a plain library crate; front-ends are thin. **All save writes go
 through `src/app.rs::patch_save`** — never re-serialize a save any other way.
@@ -87,8 +87,11 @@ mod/
                        mono_domain_assembly_open(Swgp2Mod.dll) → Entry.Main()
 src/bin/swgp2-tool.rs GUI
 src/bin/swgp2-tui.rs  TUI
-src/bin/swgp2-mcp.rs  (pending) MCP server (stdio JSON-RPC 2.0) — the "do anything" agent surface
-src/mcp.rs            (pending) MCP framework: registry, schemas, dispatch
+src/mcp.rs            MCP server logic: dispatch (initialize/tools/list/tools/call) + ~30 tools:
+                        save (get/set/dump/apply/patch/backup/verify), game info/launch,
+                        events scan (live), wiki picks, catalog, file_info/hexdump/strings/search,
+                        process/memory (find, modules, read/write/search), DLL inject & mod install/inject
+src/bin/swgp2-mcp.rs  swgp2-mcp stdio JSON-RPC server (newline-delimited)
 ```
 
 ## Data flow

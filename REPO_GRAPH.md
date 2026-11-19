@@ -59,6 +59,11 @@ src/tool/            game-data side of the tool (no GUI deps)
   loader/      (mod/loader/) swgp2-mod native cdylib - injected into the game;
               loads managed `mod/Swgp2Mod.dll` into Mono via the embed API
               (domain_assembly_open -> Swgp2Mod.Entry.Main); zero dependencies
+ src/mcp.rs   MCP server logic (stdio JSON-RPC 2.0): initialize/tools-list/
+               tools-call + ~30 tools (save ops with game-running guard, file
+               info/hexdump/strings/search, process/memory tools, DLL injection,
+               mod install/inject, event/wiki lookups)
+ src/bin/swgp2-mcp.rs  swgp2-mcp stdio JSON-RPC 2.0 server (verified working)
         │ uses ▼
 src/save.rs           high-level save handling (all errors = SaveError(String))
   load(path) → (Graph, raw)       read → crypto::decrypt → nrbf::parse

@@ -24,6 +24,10 @@ path = "src/bin/swgp2-tool.rs"
 name = "swgp2-tui"
 path = "src/bin/swgp2-tui.rs"
 
+[[bin]]
+name = "swgp2-mcp"
+path = "src/bin/swgp2-mcp.rs"
+
 [profile.release]
 opt-level = 3
 lto = true

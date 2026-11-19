@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod crypto;
+pub mod mcp;
 pub mod nrbf;
 pub mod save;
 pub mod tool;

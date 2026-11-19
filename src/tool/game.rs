@@ -10,17 +10,30 @@ fn is_game_dir(dir: &Path) -> bool {
     dir.join(EXE_NAME).is_file() && dir.join("Super Woden GP 2_Data").is_dir()
 }
 
-/// Shallow, bounded search for the game folder on the most common roots.
-/// Looks at folders named like *swgp2* / *woden* (one level deep per root plus
-/// `<root>\games`), so it stays fast and never scans the whole disk.
+/// Shallow, bounded search for the game folder. Checks (in order):
+/// 1. the persisted choice from settings.json,
+/// 2. drive roots (top 2 levels + `<root>\games`),
+/// 3. the user's Downloads/Desktop/Documents folders (one level down) - this is
+///    where portable-game zip archives usually get extracted,
+/// 4. `<USERPROFILE>\Super Woden GP 2`.
+/// Never scans whole disks, always bounded.
 pub fn detect_game_dir() -> Option<PathBuf> {
+    // 1. persisted choice (GUI "Locate game folder…")
+    if let Some(dir) = crate::tool::settings::load()
+        .game_dir
+        .filter(|d| is_game_dir(d))
+    {
+        return Some(dir);
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
     let roots = ["C:\\", "D:\\", "E:\\", "F:\\"]
         .iter()
         .map(PathBuf::from)
         .filter(|r| r.is_dir())
         .collect::<Vec<_>>();
 
-    let mut candidates: Vec<PathBuf> = Vec::new();
+    // 2. drive roots
     for root in &roots {
         candidates.push(root.clone());
         if let Ok(rd) = fs::read_dir(root) {
@@ -41,9 +54,34 @@ pub fn detect_game_dir() -> Option<PathBuf> {
         }
     }
 
+    // 3. the user's usual "where games live" folders, one level down
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        for sub in ["Downloads", "Desktop", "Documents"] {
+            let base = PathBuf::from(&home).join(sub);
+            if let Ok(rd) = fs::read_dir(&base) {
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        candidates.push(p.clone());
+                        // also the exe directly inside the game folder (scan one level deeper)
+                        if let Ok(rd2) = fs::read_dir(&p) {
+                            for e2 in rd2.flatten() {
+                                let p2 = e2.path();
+                                if p2.is_dir() && is_game_dir(&p2) {
+                                    candidates.push(p2);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        candidates.push(PathBuf::from(&home).join("Super Woden GP 2"));
+    }
+
     candidates.into_iter().find(|d| {
         let name = d.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-        (name.contains("swgp2") || name.contains("woden")) && is_game_dir(d)
+        (name.contains("swgp2") || name.contains("woden") || is_game_dir(d)) && is_game_dir(d)
     })
 }
 
