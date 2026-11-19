@@ -22,6 +22,7 @@ use swgp2_tool::app;
 struct Field {
     path: String,
     label: String,
+    hint: String,
     text: String,
 }
 
@@ -69,10 +70,11 @@ impl App {
             Ok(g) => {
                 self.fields = app::COMMON_FIELDS
                     .iter()
-                    .map(|(p, l)| Field {
-                        path: p.to_string(),
-                        label: l.to_string(),
-                        text: app::field_text(&g, p),
+                    .map(|f| Field {
+                        path: f.path.to_string(),
+                        label: f.label.to_string(),
+                        hint: f.hint.to_string(),
+                        text: app::field_text(&g, f.path),
                     })
                     .collect();
                 self.msg(format!("loaded {}", path.display()), Color::Green);
@@ -269,10 +271,16 @@ fn ui(f: &mut ratatui::Frame<'_>, app: &App) {
         .fields
         .iter()
         .map(|fld| {
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("{:<28}", fld.label), Style::default().fg(Color::White)),
-                Span::styled(&fld.text, Style::default().fg(Color::Yellow)),
-            ]))
+            ListItem::new(vec![
+                Line::from(vec![
+                    Span::styled(format!("{:<28}", fld.label), Style::default().fg(Color::White)),
+                    Span::styled(&fld.text, Style::default().fg(Color::Yellow)),
+                ]),
+                Line::from(Span::styled(
+                    format!("    {}", fld.hint),
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ])
         })
         .collect();
     let list = List::new(items)

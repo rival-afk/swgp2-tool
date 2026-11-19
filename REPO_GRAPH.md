@@ -4,7 +4,7 @@ Crate layout: `lib (swgp2_tool)` shared by two flag-free binaries.
 Everything save-related works on a parsed **Graph**; JSON is only a view/interchange format.
 
 ```
-src/bin/swgp2-tool.rs  GUI (eframe/egui, 7z-style). run: `swgp2-tool`  (no args)
+src/bin/swgp2-tool.rs  GUI (eframe/egui). run: `swgp2-tool`  (no args)
                         menu bar + toolbar(Load/Reload/Save) + left rail sections:
                         Save Editor | Cars | Car Skins | Wiki | Game | Reset | About
                         top toolbar Save buttons act on current save; quick cheats;

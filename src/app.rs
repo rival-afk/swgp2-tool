@@ -12,18 +12,181 @@ pub fn render_json(j: &Json) -> String {
     serde_json::to_string_pretty(j).unwrap_or_else(|_| j.to_string())
 }
 
-/// Editor-friendly view of a save: (path, label). Used by both front-ends.
-pub const COMMON_FIELDS: &[(&str, &str)] = &[
-    ("Economy", "Credits (Cr)"),
-    ("Coins", "Coins"),
-    ("Language", "Language"),
-    ("Difficulty", "Difficulty"),
-    ("StatsData_.RacesCompleted", "Races completed"),
-    ("StatsData_.Victories", "Victories"),
-    ("StatsData_.MoneyWon", "Money won"),
-    ("StatsData_.MoneySpent", "Money spent"),
-    ("StatsData_.TotalKms", "Total distance (km)"),
+/// Editor-friendly view of a save: (path, label, hint). Used by both
+/// front-ends. The hint tells the user what the value means and either lists
+/// all possible values or the numeric range.
+pub struct FieldMeta {
+    pub path: &'static str,
+    pub label: &'static str,
+    pub hint: &'static str,
+}
+
+pub const COMMON_FIELDS: &[FieldMeta] = &[
+    FieldMeta {
+        path: "Economy",
+        label: "Credits (Cr)",
+        hint: "Range: 0 … 999,999,999 Cr. The 999,999,999 cheat button sets this value.",
+    },
+    FieldMeta {
+        path: "Coins",
+        label: "Coins",
+        hint: "Range: 0 … 999,999 coins.",
+    },
+    FieldMeta {
+        path: "Language",
+        label: "Language",
+        hint: "All possible values: RUS, ENG (the game ships both; anything else may fail to load). Only equal-length strings can be patched.",
+    },
+    FieldMeta {
+        path: "Difficulty",
+        label: "Difficulty",
+        hint: "Range: 0 … 2 (AI difficulty, 0 = easiest, 2 = hardest). 1 in the default save.",
+    },
+    FieldMeta {
+        path: "StatsData_.RacesCompleted",
+        label: "Races completed",
+        hint: "Range: 0 … 65,535 (uint16) — lifetime count of races.",
+    },
+    FieldMeta {
+        path: "StatsData_.Victories",
+        label: "Victories",
+        hint: "Range: 0 … 65,535 (uint16) — lifetime count of wins.",
+    },
+    FieldMeta {
+        path: "StatsData_.MoneyWon",
+        label: "Money won",
+        hint: "Range: 0 … 999,999,999 Cr — lifetime money won.",
+    },
+    FieldMeta {
+        path: "StatsData_.MoneySpent",
+        label: "Money spent",
+        hint: "Range: 0 … 999,999,999 Cr — lifetime money spent.",
+    },
+    FieldMeta {
+        path: "StatsData_.TotalKms",
+        label: "Total distance (km)",
+        hint: "Range: 0 … 999,999.9 km (float) — lifetime distance.",
+    },
 ];
+
+/// Hints for every other well-known path in the save. Used by the "Advanced -
+/// set any path" box (exact match, array indices normalised to `N`).
+pub const FIELD_HINTS: &[(&str, &str)] = &[
+    // --- root
+    ("Analog", "All possible values: false = digital controls, true = analog controls."),
+    ("CornerWarning", "All possible values: false / true — show the corner-cut (track limits) warning."),
+    ("ShowRecords", "All possible values: false / true — show lap records in the HUD."),
+    ("Miles", "All possible values: false = kilometres, true = miles."),
+    ("Vibration", "All possible values: false / true — controller vibration."),
+    ("Damage", "All possible values: false / true — car damage enabled."),
+    ("Gamemode", "All possible values seen in-game: RALLY, TIMETRIAL. Default: RALLY (fresh saves), do not set unless you know the mode exists."),
+    ("Gametime", "Range: 0 … 4,294,967,295 s (float) — total time played."),
+    ("Myslot", "Range: 0 … 999 — index of the active garage slot."),
+    ("SortMode", "Range: 0 … 3 — garage car list sort order. 3 in the default save."),
+    ("VideoMode", "Range: 0 … 2 — video mode (0/1/2, likely windowed/borderless/fullscreen). 2 in the default save."),
+    ("QualityLevel", "Range: 0 … 3 — graphics quality preset index (0 = lowest, higher = better). 2 in the default save."),
+    ("HistoricSlot", "Range: 0 … 999 — historic-car slot index."),
+    ("LeagueStars", "Null in the default save. Championship star record; cannot be patched (null ↔ value unsupported)."),
+    // --- garage slots
+    ("GarageSlots.N.CarID", "Range: 0 … 199 — car id (IMD<id> / Original_names.txt id; id 0–199 map 1:1 to the shop catalog)."),
+    ("GarageSlots.N.SlotID", "Range: 0 … 999 — garage slot index (order of the car in the garage)."),
+    ("GarageSlots.N.SkinID", "Range: 0 … 999 — skin id within the car's skin folder."),
+    ("GarageSlots.N.Kms", "Range: 0 … 999,999.9 km (float) — mileage/wear of this car."),
+    ("GarageSlots.N.DirtyNess", "Range: 0 … 999 — dirt level of this car."),
+    ("GarageSlots.N.Oil", "Range: 0 … 999 — oil level of this car."),
+    ("GarageSlots.N.RimsID", "Range: 0 … 999 — rims style id."),
+    ("GarageSlots.N.Gift", "All possible values: false / true — the car was a gift."),
+    ("GarageSlots.N.Engine", "Range: 0 … 999 — engine upgrade level."),
+    ("GarageSlots.N.Brakes", "Range: 0 … 999 — brakes upgrade level."),
+    ("GarageSlots.N.Chassis", "Range: 0 … 999 — chassis upgrade level."),
+    ("GarageSlots.N.Gearbox", "Range: 0 … 999 — gearbox upgrade level."),
+    ("GarageSlots.N.Suspension", "Range: 0 … 999 — suspension upgrade level."),
+    ("GarageSlots.N.Tyres", "Range: 0 … 999 — tyres upgrade level."),
+    // --- league (circuit championships)
+    ("LeagueStatus_.ChampIndex", "Range: 0 … 255 — index of the current championship."),
+    ("LeagueStatus_.GarSlot", "Range: 0 … 999 — garage slot used for the league."),
+    ("LeagueStatus_.Round", "Range: 0 … 999 — current round index (0 = not started)."),
+    ("LeagueStatus_.ChampPrices.N", "Range: 0 … 999,999,999 Cr — entry price of a championship; last two entries are 0 (free)."),
+    ("LeagueStatus_.Points.N", "Range: 0 … 65,535 — championship points scored (one entry per championship)."),
+    ("LeagueStatus_.Stars.N", "Range: 0 … 255 — stars earned."),
+    // --- weekend events
+    ("WeekendStatus_.ChampIndex", "Range: 0 … 255 — index of the current weekend event."),
+    ("WeekendStatus_.Round", "Range: 0 … 255 — current round of the weekend event."),
+    ("WeekendStatus_.ChampPrices.N", "Range: 0 … 999,999,999 Cr — entry price of a weekend event; trailing entries are 0 (free)."),
+    ("WeekendStarGroups.N", "Range: 0 … 255 — star rating of a weekend event."),
+    // --- rally championship
+    ("RallyStatus_.RallyIndex", "Range: 0 … 255 — index of the current rally."),
+    ("RallyStatus_.Round", "Range: 0 … 255 — current rally round."),
+    ("RallyStatus_.GarSlot", "Range: 0 … 999 — garage slot used for the rally."),
+    ("RallyStatus_.ChampPrices.N", "Range: 0 … 999,999,999 Cr — rally entry price; trailing entries are 0 (free)."),
+    ("RallyStatus_.PlayerRoundTimes.N", "Range: 0 … 999,999.9 s (float) — your stage times (25 slots)."),
+    ("RallyStatus_.OpponentTimes.N", "Range: 0 … 999,999.9 s (float) — AI rivals' stage times."),
+    ("RallyStatus_.OpponentTotalTimes.N", "Range: 0 … 999,999.9 s (float) — AI rivals' total rally times."),
+    ("RallyStatus_.Stars.N", "Range: 0 … 255 — stars earned in the rally."),
+    // --- arcade
+    ("ArcadeStatus_.Round", "Range: 0 … 255 — arcade round."),
+    ("ArcadeStatus_.RouteIndex", "Range: 0 … 255 — arcade route index."),
+    ("ArcadeStatus_.Opened", "All possible values: false / true — arcade mode unlocked."),
+    ("ArcadeStatus_.HasContinued", "All possible values: false / true — used a continue in arcade."),
+    // --- stats
+    ("StatsData_.RacesCompleted", "Range: 0 … 65,535 (uint16) — lifetime races completed."),
+    ("StatsData_.Victories", "Range: 0 … 65,535 — lifetime victories."),
+    ("StatsData_.ArcadeRaces", "Range: 0 … 65,535 — lifetime arcade races."),
+    ("StatsData_.MoneyWon", "Range: 0 … 999,999,999 Cr — lifetime money won."),
+    ("StatsData_.MoneySpent", "Range: 0 … 999,999,999 Cr — lifetime money spent."),
+    ("StatsData_.TotalKms", "Range: 0 … 999,999.9 km (float) — lifetime distance."),
+    ("StatsData_.ArcadeKms", "Range: 0 … 999,999.9 km (float) — lifetime arcade distance."),
+    ("StatsData_.InvitationKms", "Range: 0 … 999,999.9 km (float) — lifetime invitational distance."),
+    ("StatsData_.Invitationkey", "Range: 0 … 65,535 — invitational key code."),
+    ("StatsData_.Invitationtries.N", "Range: 0 … 65,535 — invitational attempts (3 tries)."),
+    ("StatsData_.AirTime", "Range: 0 … 999,999.9 s (float) — lifetime airtime."),
+    ("StatsData_.Gametime", "Range: 0 … 4,294,967,295 s (float) — play time (duplicates the root Gametime)."),
+    ("StatsData_.Breakdowns", "Range: 0 … 65,535 — breakdowns suffered."),
+    ("StatsData_.OilChanges", "Range: 0 … 65,535 — oil changes done."),
+    ("StatsData_.CarsCleaned", "Range: 0 … 65,535 — cars cleaned."),
+    ("StatsData_.Streak", "Range: 0 … 65,535 — current win streak."),
+    ("StatsData_.ArcadeRound", "Range: 0 … 65,535 — arcade round reached."),
+    ("StatsData_.GhostViewMode", "Range: 0 … 2 — ghost view mode."),
+    ("StatsData_.Vsync", "All possible values: 0 = off, 1 = on."),
+    ("StatsData_.MasterVolume", "Range: -96.0 … 0.0 dB (float, negative = quieter)."),
+    ("StatsData_.RaceMusic", "Range: -96.0 … 0.0 dB (float)."),
+    ("StatsData_.MenuMusic", "Range: -96.0 … 0.0 dB (float)."),
+    ("StatsData_.RaceSFX", "Range: -96.0 … 0.0 dB (float)."),
+    ("StatsData_.MenuSFX", "Range: -96.0 … 0.0 dB (float)."),
+    ("StatsData_.FixedMinimap", "All possible values: false / true — minimap fixed on the track."),
+    ("StatsData_.ResizeHud", "All possible values: false / true — HUD resized."),
+    ("StatsData_.Flare", "All possible values: false / true — lens flare effect."),
+    ("StatsData_.FXAA", "All possible values: false / true — FXAA anti-aliasing."),
+    ("StatsData_.SSAO", "All possible values: false / true — screen-space ambient occlusion."),
+    ("StatsData_.MultiPlayerCollisions", "All possible values: false / true."),
+    ("StatsData_.MenuCycleAnimation", "All possible values: false / true — animated menu backgrounds."),
+    ("StatsData_.Tutorial_01", "All possible values: false / true — tutorial completed."),
+    ("StatsData_.CustomMusic", "All possible values: false / true — custom music enabled."),
+    ("StatsData_.Country", "Range: 0 … 255 — country code index; 21 = Russia in the default save."),
+    ("StatsData_.Creditsrolled", "All possible values: false / true — end-credits rolled."),
+    ("StatsData_.Unlocked.N", "All possible values: false / true — unlocked content flag (999 entries)."),
+    ("StatsData_.AchievementsClear.N", "All possible values: false / true — achievement cleared (50 entries)."),
+];
+
+/// Hint for an arbitrary path (array indices are normalised to `N`).
+pub fn field_hint(path: &str) -> Option<&'static str> {
+    let norm = path
+        .split('.')
+        .map(|p| {
+            if p.chars().all(|c| c.is_ascii_digit()) {
+                "N"
+            } else {
+                p
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(".");
+    FIELD_HINTS
+        .iter()
+        .find(|(p, _)| *p == norm)
+        .map(|(_, h)| *h)
+        .or_else(|| COMMON_FIELDS.iter().find(|f| f.path == path).map(|f| f.hint))
+}
 
 /// Load a save file into a graph.
 pub fn load(path: &Path) -> Result<Graph, String> {

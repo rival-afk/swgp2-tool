@@ -2,7 +2,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 //! swgp2-tool - all-in-one tool for Super Woden GP 2. No flags, just run it.
 //!
-//! Layout (7z-style): menu bar -> toolbar (Load/Reload/Save + quick actions)
+//! Layout: menu bar -> toolbar (Load/Reload/Save + quick actions)
 //! -> left section rail + central panel -> status bar.
 
 use eframe::egui;
@@ -34,7 +34,7 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-/// 7z-ish light/white theme.
+/// Light/white theme.
 fn white_visuals() -> egui::Visuals {
     let mut v = egui::Visuals::light();
     let white = egui::Color32::WHITE;
@@ -84,6 +84,9 @@ enum WikiTab {
     Cars,
     Championships,
     Tracks,
+    Weekends,
+    Endurance,
+    Rallies,
     Tips,
 }
 
@@ -93,6 +96,9 @@ impl WikiTab {
             WikiTab::Cars => "Cars",
             WikiTab::Championships => "Championships",
             WikiTab::Tracks => "Tracks",
+            WikiTab::Weekends => "Weekends",
+            WikiTab::Endurance => "Endurance",
+            WikiTab::Rallies => "Rallies",
             WikiTab::Tips => "Tips",
         }
     }
@@ -101,6 +107,7 @@ impl WikiTab {
 struct Field {
     path: String,
     label: String,
+    hint: String,
     text: String,
 }
 
@@ -137,9 +144,12 @@ struct Tool {
 
     // --- cars & skins
     cars: Vec<cars::CarEntry>,
+    car_preview_cache: HashMap<usize, Option<PathBuf>>,
     car_filter: String,
     car_sort: SortKey,
     car_sort_desc: bool,
+    car_page: usize,
+    car_detail_open: bool,
     selected_car: Option<usize>,
     skins_list: Vec<skins::SkinEntry>,
     skin_filter: String,
@@ -162,6 +172,10 @@ struct Tool {
     wiki_car_filter: String,
     wiki_dealer_filter: String,
     wiki_catalog: Vec<swgp2_tool::tool::catalog::CatalogCar>,
+    wiki_events: Option<Vec<swgp2_tool::tool::events::GameEvent>>,
+    wiki_events_err: Option<String>,
+    event_search: String,
+    endurance_only: bool,
     wiki_selected_car: Option<usize>,
     wiki_skin_idx: usize,
     wiki_detail_open: bool,
@@ -194,9 +208,12 @@ impl Tool {
             show_backups: false,
             show_crypto: false,
             cars: Vec::new(),
+            car_preview_cache: HashMap::new(),
             car_filter: String::new(),
             car_sort: SortKey::Rank,
             car_sort_desc: true,
+            car_page: 0,
+            car_detail_open: false,
             selected_car: None,
             skins_list: Vec::new(),
             skin_filter: String::new(),
@@ -213,6 +230,10 @@ impl Tool {
             wiki_car_filter: String::new(),
             wiki_dealer_filter: String::new(),
             wiki_catalog: Vec::new(),
+            wiki_events: None,
+            wiki_events_err: None,
+            event_search: String::new(),
+            endurance_only: false,
             wiki_selected_car: None,
             wiki_skin_idx: 0,
             wiki_detail_open: false,
@@ -310,12 +331,17 @@ impl Tool {
 
     fn load_cars_and_skins(&mut self) {
         self.cars.clear();
+        self.car_preview_cache.clear();
         self.skins_list.clear();
         self.wiki_catalog.clear();
+        self.wiki_events = None; // re-parse events for the (possibly) new game folder
+        self.wiki_events_err = None;
         self.selected_car = None;
         self.selected_skin = None;
         self.wiki_selected_car = None;
         self.wiki_detail_open = false;
+        self.car_page = 0;
+        self.car_detail_open = false;
         let Some(gd) = self.game_dir.clone() else { return };
         let data_txt = game::streaming_data_dir(&gd).join("uselesslist.txt");
         let mut cars = cars::CarEntry::parse_file(&data_txt);
@@ -346,10 +372,11 @@ impl Tool {
             Ok(g) => {
                 self.fields = app::COMMON_FIELDS
                     .iter()
-                    .map(|(p, l)| Field {
-                        path: p.to_string(),
-                        label: l.to_string(),
-                        text: app::field_text(&g, p),
+                    .map(|f| Field {
+                        path: f.path.to_string(),
+                        label: f.label.to_string(),
+                        hint: f.hint.to_string(),
+                        text: app::field_text(&g, f.path),
                     })
                     .collect();
                 self.msg(format!("loaded {}", path.display()), true);
@@ -644,7 +671,7 @@ impl eframe::App for Tool {
                     ui.add_space(4.0);
                 }
                 ui.separator();
-                ui.small(" 7z-style\n no flags,\n just run");
+                ui.small(" no flags,\n just run");
             });
 
         // ------------------------------------------------------------ main
@@ -735,7 +762,10 @@ impl Tool {
                 ui.separator();
                 egui::Grid::new("fields").num_columns(2).spacing([12.0, 5.0]).show(ui, |ui| {
                     for field in &mut self.fields {
-                        ui.label(&field.label);
+                        ui.vertical(|ui| {
+                            ui.label(&field.label);
+                            ui.small(egui::RichText::new(&field.hint).color(egui::Color32::from_gray(110)));
+                        });
                         let r = ui.add(
                             egui::TextEdit::singleline(&mut field.text).desired_width(f32::INFINITY),
                         );
@@ -766,6 +796,9 @@ impl Tool {
                 .default_open(self.show_advanced)
                 .show(ui, |ui| {
                     ui.label("Path (e.g. GarageSlots.0.CarID, LeagueStatus_.ChampPrices.2):");
+                    if let Some(hint) = app::field_hint(self.advanced_path.trim()) {
+                        ui.small(egui::RichText::new(hint).color(egui::Color32::from_gray(110)));
+                    }
                     ui.horizontal(|ui| {
                         ui.add(egui::TextEdit::singleline(&mut self.advanced_path).desired_width(240.0));
                         ui.label("=");
@@ -887,141 +920,202 @@ impl Tool {
 
         ui.add_space(6.0);
 
-        // stats + filter
+        // stats + filter + sort
         ui.horizontal(|ui| {
             ui.strong(format!("Power ranking - {} cars", self.cars.len()));
             ui.separator();
             ui.label("Filter:");
-            ui.add(egui::TextEdit::singleline(&mut self.car_filter).desired_width(220.0));
+            if ui.add(egui::TextEdit::singleline(&mut self.car_filter).desired_width(200.0)).changed() {
+                self.car_page = 0;
+            }
             if ui.button("x").clicked() {
                 self.car_filter.clear();
+                self.car_page = 0;
+            }
+            ui.separator();
+            ui.label("Sort:");
+            egui::ComboBox::from_id_salt("car_sort")
+                .selected_text(match self.car_sort {
+                    SortKey::Rank => "Rank",
+                    SortKey::Cv => "CV",
+                    SortKey::TopSpeed => "km/h",
+                    SortKey::Year => "Year",
+                    SortKey::Name => "Name",
+                })
+                .show_ui(ui, |ui| {
+                    let opts = [
+                        (SortKey::Rank, "Rank"),
+                        (SortKey::Cv, "CV"),
+                        (SortKey::TopSpeed, "km/h"),
+                        (SortKey::Year, "Year"),
+                        (SortKey::Name, "Name"),
+                    ];
+                    for (k, label) in opts {
+                        ui.selectable_value(&mut self.car_sort, k, label);
+                    }
+                });
+            let dir = if self.car_sort_desc { "v desc" } else { "^ asc" };
+            if ui.button(dir).clicked() {
+                self.car_sort_desc = !self.car_sort_desc;
             }
         });
-        ui.small("Parsed from the game's uselesslist.txt; preview from CAR_SKINS/*/…base.png|tga. Click a column header to sort, click a row to preview.");
+        ui.small("Official power ranking (uselesslist.txt). Click a card to open the full card with skins.");
         ui.add_space(6.0);
 
-        let avail = ui.available_size();
-        let table_w = (avail.x - 360.0).max(320.0);
-
-        ui.horizontal(|ui| {
-            // ---------------- table
-            ui.allocate_ui_with_layout(
-                egui::vec2(table_w, avail.y),
-                egui::Layout::top_down(egui::Align::LEFT),
-                |ui| {
-                let mut order: Vec<usize> = self
-                    .cars
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, c)| {
-                        if self.car_filter.is_empty() {
-                            true
-                        } else {
-                            c.name.to_lowercase().contains(&self.car_filter.to_lowercase())
-                        }
-                    })
-                    .map(|(i, _)| i)
-                    .collect();
-                match self.car_sort {
-                    SortKey::Rank => {}
-                    SortKey::Cv => order.sort_by_key(|&i| self.cars[i].cv),
-                    SortKey::TopSpeed => order.sort_by_key(|&i| self.cars[i].top_speed),
-                    SortKey::Year => order.sort_by_key(|&i| self.cars[i].year),
-                    SortKey::Name => order.sort_by(|&a, &b| self.cars[a].name.cmp(&self.cars[b].name)),
+        // compute the displayed order once per frame
+        let mut order: Vec<usize> = self
+            .cars
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                if self.car_filter.is_empty() {
+                    true
+                } else {
+                    c.name.to_lowercase().contains(&self.car_filter.to_lowercase())
                 }
-                if self.car_sort != SortKey::Rank && !self.car_sort_desc {
-                    order.reverse();
-                }
+            })
+            .map(|(i, _)| i)
+            .collect();
+        match self.car_sort {
+            SortKey::Rank => {}
+            SortKey::Cv => order.sort_by_key(|&i| self.cars[i].cv),
+            SortKey::TopSpeed => order.sort_by_key(|&i| self.cars[i].top_speed),
+            SortKey::Year => order.sort_by_key(|&i| self.cars[i].year),
+            SortKey::Name => order.sort_by(|&a, &b| self.cars[a].name.cmp(&self.cars[b].name)),
+        }
+        if self.car_sort != SortKey::Rank && !self.car_sort_desc {
+            order.reverse();
+        }
 
-                egui::ScrollArea::vertical().id_salt("cars_table").show(ui, |ui| {
-                    egui::Grid::new("cars")
-                        .num_columns(7)
-                        .striped(true)
-                        .min_col_width(36.0)
-                        .spacing([10.0, 3.0])
-                        .show(ui, |ui| {
-                            for (label, key) in [
-                                ("#", None),
-                                ("Car", Some(SortKey::Name)),
-                                ("CV", Some(SortKey::Cv)),
-                                ("Kmh", Some(SortKey::TopSpeed)),
-                                ("Year", Some(SortKey::Year)),
-                                ("Type", None),
-                                ("Skins", None),
-                            ] {
-                                if let Some(k) = key {
-                                    let arrow = if self.car_sort == k {
-                                        if self.car_sort_desc { " v" } else { " ^" }
-                                    } else {
-                                        ""
-                                    };
-                                    if ui.button(format!("{label}{arrow}")).clicked() {
-                                        if self.car_sort == k {
-                                            self.car_sort_desc = !self.car_sort_desc;
-                                        } else {
-                                            self.car_sort = k;
-                                            self.car_sort_desc = true;
+        const PAGE: usize = 12; // 4 columns x 3 rows
+        let total = order.len();
+        let pages = total.div_ceil(PAGE).max(1);
+        if self.car_page >= pages {
+            self.car_page = pages - 1;
+        }
+        let start = self.car_page * PAGE;
+        let end = (start + PAGE).min(total);
+
+        egui::ScrollArea::vertical().id_salt("cars_catalog").show(ui, |ui| {
+            egui::Grid::new("cars_grid")
+                .num_columns(4)
+                .spacing([14.0, 14.0])
+                .show(ui, |ui| {
+                    let mut col = 0;
+                    for &i in &order[start..end] {
+                        let (name, cv, top_speed, year, rally, skin_dirs_len, skin_dirs) = {
+                            let car = &self.cars[i];
+                            (
+                                car.name.clone(),
+                                car.cv,
+                                car.top_speed,
+                                car.year,
+                                car.rally,
+                                car.skin_dirs.len(),
+                                car.skin_dirs.clone(),
+                            )
+                        };
+                        let preview = self
+                            .car_preview_cache
+                            .entry(i)
+                            .or_insert_with(|| cars::pick_preview(&skin_dirs))
+                            .clone();
+                        let rank = i + 1; // file order == official rank
+                        let selected = self.selected_car == Some(i);
+                        ui.vertical(|ui| {
+                            let img_w = 160.0;
+                            ui.allocate_ui(egui::vec2(img_w, 104.0), |ui| {
+                                match preview.as_ref().and_then(|p| self.texture(ctx, p)) {
+                                    Some(tex) => {
+                                        let ts = tex.size_vec2();
+                                        let scale = (img_w / ts.x).min(104.0 / ts.y);
+                                        if ui
+                                            .add(egui::Image::new((tex.id(), ts * scale)).sense(egui::Sense::click()))
+                                            .clicked()
+                                        {
+                                            self.select_car(i);
+                                            self.car_detail_open = true;
                                         }
                                     }
-                                } else {
-                                    ui.strong(label);
+                                    None => {
+                                        ui.label(egui::RichText::new("[no skin]").color(egui::Color32::from_gray(150)));
+                                    }
                                 }
+                            });
+                            let title = if rally { format!("{name} (rally)") } else { name };
+                            if ui
+                                .add(egui::SelectableLabel::new(
+                                    selected,
+                                    egui::RichText::new(&title).strong(),
+                                ))
+                                .clicked()
+                            {
+                                self.select_car(i);
+                                self.car_detail_open = true;
                             }
-                            ui.end_row();
-
-                            for (rank, i) in order.iter().enumerate() {
-                                let (name, cv, top_speed, year, rally, skin_dirs_len) = {
-                                    let car = &self.cars[*i];
-                                    (car.name.clone(), car.cv, car.top_speed, car.year, car.rally, car.skin_dirs.len())
-                                };
-                                let selected = self.selected_car == Some(*i);
-                                if ui.add(egui::SelectableLabel::new(selected, format!("{}", rank + 1))).clicked() {
-                                    self.select_car(*i);
-                                }
-                                if ui.add(egui::SelectableLabel::new(selected, &name)).clicked() {
-                                    self.select_car(*i);
-                                }
-                                ui.label(cv.to_string());
-                                ui.label(top_speed.to_string());
-                                ui.label(year.to_string());
-                                ui.label(if rally { "Rally" } else { "" });
-                                ui.label(skin_dirs_len.to_string());
-                                ui.end_row();
-                            }
+                            ui.small(format!("#{rank}  {cv} CV  {top_speed} km/h  {year}"));
+                            ui.small(format!(
+                                "{} - {} skin folder(s)",
+                                if rally { "Rally" } else { "GT" },
+                                skin_dirs_len
+                            ));
                         });
+                        col += 1;
+                        if col == 4 {
+                            ui.end_row();
+                            col = 0;
+                        }
+                    }
+                    if col != 0 {
+                        ui.end_row();
+                    }
                 });
-            },
-            );
+        });
 
-            // ---------------- preview pane
-            ui.separator();
-            ui.vertical(|ui| {
-                ui.strong("Preview");
-                match self.selected_car {
-                    Some(i) => {
-                        let car = &self.cars[i];
-                        ui.label(
-                            egui::RichText::new(format!("{}{}", car.name, if car.rally { " (rally)" } else { "" }))
-                                .size(16.0)
-                                .strong(),
-                        );
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(self.car_page > 0, egui::Button::new("< Prev"))
+                .clicked()
+            {
+                self.car_page -= 1;
+            }
+            ui.label(format!("Page {} / {}  ({} cars)", self.car_page + 1, pages, total));
+            if ui
+                .add_enabled(self.car_page + 1 < pages, egui::Button::new("Next >"))
+                .clicked()
+            {
+                self.car_page += 1;
+            }
+        });
+
+        // floating detail window
+        if self.car_detail_open {
+            if let Some(i) = self.selected_car {
+                let car = &self.cars[i];
+                let title = format!("{}{}", car.name, if car.rally { " (rally)" } else { "" });
+                let (cv, top_speed, year, skin_dirs_len) = (car.cv, car.top_speed, car.year, car.skin_dirs.len());
+                let mut open = self.car_detail_open;
+                egui::Window::new(&title)
+                    .collapsible(false)
+                    .open(&mut open)
+                    .resizable(true)
+                    .default_width(420.0)
+                    .show(ctx, |ui| {
                         ui.small(format!(
-                            "{} CV - {} km/h - {} - {} skin folder(s)",
-                            car.cv,
-                            car.top_speed,
-                            car.year,
-                            car.skin_dirs.len()
+                            "#{rank}  {cv} CV  -  {top_speed} km/h  -  {year}  -  {skin_dirs_len} skin folder(s)",
+                            rank = i + 1,
                         ));
                         ui.add_space(6.0);
-
                         self.show_skin_images_preview(ui, ctx);
-                    }
-                    None => {
-                        ui.label("Select a car to preview its skin.");
-                    }
+                    });
+                if !open {
+                    self.car_detail_open = false;
                 }
-            });
-        });
+            } else {
+                self.car_detail_open = false;
+            }
+        }
     }
 
     // --------------------------------------------------- skins section
@@ -1199,12 +1293,34 @@ impl Tool {
     }
 
     // --------------------------------------------------- wiki: cars page
+    fn wiki_ensure_events(&mut self) {
+        if self.wiki_events.is_some() || self.wiki_events_err.is_some() {
+            return;
+        }
+        let Some(gd) = self.game_dir.clone() else {
+            self.wiki_events_err = Some("game folder not set".into());
+            return;
+        };
+        match swgp2_tool::tool::events::load_for_game(&gd) {
+            Ok(ev) => self.wiki_events = Some(ev),
+            Err(e) => self.wiki_events_err = Some(format!("cannot parse level0: {e}")),
+        }
+    }
+
     fn wiki_section(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            for t in [WikiTab::Cars, WikiTab::Championships, WikiTab::Tracks, WikiTab::Tips] {
-                let btn = egui::Button::new(egui::RichText::new(t.label()).size(15.0))
-                    .min_size(egui::vec2(130.0, 30.0))
+            for t in [
+                WikiTab::Cars,
+                WikiTab::Championships,
+                WikiTab::Tracks,
+                WikiTab::Weekends,
+                WikiTab::Endurance,
+                WikiTab::Rallies,
+                WikiTab::Tips,
+            ] {
+                let btn = egui::Button::new(egui::RichText::new(t.label()).size(13.0))
+                    .min_size(egui::vec2(98.0, 30.0))
                     .selected(self.wiki_tab == t);
                 if ui.add(btn).clicked() {
                     self.wiki_tab = t;
@@ -1216,9 +1332,221 @@ impl Tool {
         match self.wiki_tab {
             WikiTab::Cars => self.wiki_cars_page(ui, ctx),
             WikiTab::Championships => self.wiki_list_page(ui, swgp2_tool::tool::wiki::CHAMPIONSHIPS, "Championships"),
-            WikiTab::Tracks => self.wiki_list_page(ui, swgp2_tool::tool::wiki::TRACKS, "Tracks"),
+            WikiTab::Tracks => {
+                self.wiki_ensure_events();
+                if let Some(err) = self.wiki_events_err.clone() {
+                    ui.add_space(4.0);
+                    ui.colored_label(
+                        egui::Color32::from_rgb(200, 60, 60),
+                        format!("level0 parse failed: {err} - showing the static list instead"),
+                    );
+                    self.wiki_list_page(ui, swgp2_tool::tool::wiki::TRACKS, "Tracks");
+                } else {
+                    self.wiki_events_page(ui, "Tracks", |e| e.kind == swgp2_tool::tool::events::EventKind::Track)
+                }
+            }
+            WikiTab::Weekends => {
+                self.wiki_ensure_events();
+                let endurance_only = self.endurance_only;
+                self.wiki_events_page(ui, "Weekends", |e| {
+                    e.kind == swgp2_tool::tool::events::EventKind::Weekend
+                        && (!endurance_only || e.is_endurance())
+                })
+            }
+            WikiTab::Endurance => {
+                self.wiki_ensure_events();
+                self.wiki_events_page(ui, "Endurance", |e| e.is_endurance())
+            }
+            WikiTab::Rallies => self.wiki_rallies_page(ui),
             WikiTab::Tips => self.wiki_tips_page(ui),
         }
+    }
+
+    /// Live events page (tracks / weekends / endurance), built by parsing the
+    /// game's own level0 - no curated list. Falls back to the static TRACKS
+    /// list for the Tracks tab if the parse fails.
+    fn wiki_events_page(&mut self, ui: &mut egui::Ui, title: &str, pred: impl Fn(&swgp2_tool::tool::events::GameEvent) -> bool) {
+        if let Some(err) = self.wiki_events_err.clone() {
+            self.wiki_error_box(ui, &err, title);
+            return;
+        }
+        let Some(events) = self.wiki_events.clone() else {
+            ui.label("No event data.");
+            return;
+        };
+        let is_weekends = title == "Weekends";
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(format!("{title} - built live from the game's own data (level0)")).size(16.0).strong());
+            ui.separator();
+            ui.label("Search:");
+            ui.add(egui::TextEdit::singleline(&mut self.event_search).desired_width(180.0));
+            if ui.button("x").clicked() {
+                self.event_search.clear();
+            }
+            if is_weekends {
+                ui.checkbox(&mut self.endurance_only, "endurance only");
+            }
+        });
+        ui.small("Restrictions (car class / dealership / model / pilot / weather) are read from the records in the game's data files, as stored by the game. Recommendations: best restricted cars by CV, then top speed.");
+        ui.add_space(6.0);
+
+        let filter = self.event_search.trim().to_lowercase();
+        let matches = |e: &swgp2_tool::tool::events::GameEvent| {
+            filter.is_empty()
+                || e.name.to_lowercase().contains(&filter)
+                || e.restriction_text().to_lowercase().contains(&filter)
+                || e.is_endurance()
+                    && "endurance".contains(&filter)
+        };
+        let shown: Vec<swgp2_tool::tool::events::GameEvent> = events
+            .iter()
+            .filter(|e| pred(e))
+            .filter(|e| matches(e))
+            .cloned()
+            .collect();
+        ui.small(format!("{} event(s)", shown.len()));
+        ui.add_space(6.0);
+
+        egui::ScrollArea::vertical().id_salt("events_list").show(ui, |ui| {
+            for ev in &shown {
+                self.event_card(ui, ev);
+                ui.add_space(4.0);
+            }
+            if shown.is_empty() {
+                ui.label("Nothing matches the filter.");
+            }
+        });
+    }
+
+    fn wiki_error_box(&mut self, ui: &mut egui::Ui, err: &str, context: &str) {
+        ui.add_space(20.0);
+        ui.colored_label(egui::Color32::from_rgb(200, 60, 60), format!("{context}: {err}"));
+        ui.small("The live parser reads the game's own level0. It may not match this game build — check docs/GAME_FILES.md.");
+    }
+
+    fn wiki_rallies_page(&mut self, ui: &mut egui::Ui) {
+        self.wiki_ensure_events();
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("Rallies - championships and rally stages (from the game's own data)").size(17.0).strong());
+        ui.small("Rally championships are the in-game league series (names verified against level0). Rally stages are the timed rally events, parsed live from the game's files. Recommendations are rally cars ranked by official CV, then top speed.");
+        ui.add_space(8.0);
+
+        egui::ScrollArea::vertical().id_salt("rallies_page").show(ui, |ui| {
+            ui.label(egui::RichText::new("Rally championships").strong().size(15.0));
+            ui.add_space(4.0);
+            for ch in swgp2_tool::tool::wiki::CHAMPIONSHIPS
+                .iter()
+                .filter(|c| c.kind == swgp2_tool::tool::wiki::ChampKind::Rally)
+            {
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new(ch.name).strong());
+                    ui.label(ch.note);
+                    let picks = swgp2_tool::tool::wiki::best_picks(
+                        &self.wiki_catalog,
+                        ch.kind,
+                        ch.class_token,
+                        5,
+                    );
+                    if picks.is_empty() {
+                        ui.small("No rally cars with official stats - pick by price and availability.");
+                    } else {
+                        let txt = picks
+                            .iter()
+                            .map(|c| {
+                                let spec = c
+                                    .cv
+                                    .map(|cv| format!("{} CV{}", cv, c.year.map(|y| format!(" ({y})")).unwrap_or_default()))
+                                    .unwrap_or_else(|| "?".into());
+                                format!("{} ({spec})", swgp2_tool::tool::catalog::display_name(c))
+                            })
+                            .collect::<Vec<_>>()
+                            .join("   |   ");
+                        ui.label(egui::RichText::new(format!("Top picks: {txt}")).small());
+                    }
+                });
+                ui.add_space(4.0);
+            }
+
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Rally stages").strong().size(15.0));
+            ui.small("Parsed live from the game's level files. Stage restrictions are shown as stored by the game.");
+            ui.add_space(4.0);
+            match self.wiki_events_err.clone().or_else(|| {
+                if self.wiki_events.is_none() {
+                    Some("game folder not set".to_string())
+                } else {
+                    None
+                }
+            }) {
+                Some(err) => {
+                    ui.colored_label(egui::Color32::from_rgb(200, 60, 60), format!("level0 parse failed: {err}"));
+                }
+                None => {
+                    let stages: Vec<swgp2_tool::tool::events::GameEvent> = self
+                        .wiki_events
+                        .as_ref()
+                        .expect("checked above")
+                        .iter()
+                        .filter(|e| e.is_rally_stage())
+                        .cloned()
+                        .collect();
+                    ui.small(format!("{} stage(s)", stages.len()));
+                    ui.add_space(4.0);
+                    for ev in &stages {
+                        self.event_card(ui, ev);
+                        ui.add_space(4.0);
+                    }
+                }
+            }
+        });
+    }
+
+    fn event_card(&mut self, ui: &mut egui::Ui, ev: &swgp2_tool::tool::events::GameEvent) {
+        let _kind_label = match ev.kind {
+            swgp2_tool::tool::events::EventKind::Weekend => "WEEKEND",
+            swgp2_tool::tool::events::EventKind::Cup => "CUP",
+            swgp2_tool::tool::events::EventKind::Track => "TRACK",
+        };
+        let (badge_txt, badge_color) = match ev.kind {
+            swgp2_tool::tool::events::EventKind::Weekend => ("WEEKEND", egui::Color32::from_rgb(0, 90, 160)),
+            swgp2_tool::tool::events::EventKind::Cup => ("CUP", egui::Color32::from_rgb(160, 90, 0)),
+            swgp2_tool::tool::events::EventKind::Track => ("TRACK", egui::Color32::from_rgb(90, 90, 90)),
+        };
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(&ev.name).strong().size(15.0));
+                ui.colored_label(badge_color, badge_txt);
+                if ev.is_endurance() {
+                    ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "ENDURANCE");
+                }
+                if ev.is_rally_stage() {
+                    ui.colored_label(egui::Color32::from_rgb(0, 150, 60), "RALLY");
+                }
+                if let Some(c) = &ev.class {
+                    ui.colored_label(egui::Color32::from_rgb(120, 60, 180), egui::RichText::new(c).monospace());
+                }
+            });
+            ui.small(format!("Entry restriction: {}", ev.restriction_text()));
+            let rally_only = ev.is_rally_stage();
+            let picks = swgp2_tool::tool::events::best_cars_for_event(ev, &self.wiki_catalog, 5, rally_only);
+            if picks.is_empty() {
+                ui.small("No ranked cars match this restriction - pick by price and availability.");
+            } else {
+                let spec = |c: &swgp2_tool::tool::catalog::CatalogCar| match (c.cv, c.top_speed) {
+                    (Some(cv), Some(kmh)) => format!("{cv} CV {kmh} km/h"),
+                    (Some(cv), None) => format!("{cv} CV"),
+                    _ => "?".to_string(),
+                };
+                let txt = picks
+                    .iter()
+                    .map(|c| format!("{} ({})", swgp2_tool::tool::catalog::display_name(c), spec(c)))
+                    .collect::<Vec<_>>()
+                    .join("   |   ");
+                ui.label(egui::RichText::new(format!("Top picks: {txt}")).small());
+            }
+        });
     }
 
     fn wiki_cars_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -1388,7 +1716,7 @@ impl Tool {
                 .size(17.0)
                 .strong(),
         );
-        ui.small("Car ranking comes from the game's own uselesslist.txt + shop catalog. Recommendations are sorted by official CV/speed - they are not a playtested meta. Class-restricted (BTC, DTC, JTC) entries have no official stats in the game data.");
+        ui.small("Car ranking comes from the game's own uselesslist.txt + shop catalog. Recommendations are filtered by the league's class restriction and sorted by official CV, then top speed. Class-restricted entries show only cars of that class.");
         ui.add_space(8.0);
 
         let no_picks_msg = "No ranked cars of this class exist in the game's ranking - choose by price and availability.";
@@ -1406,7 +1734,7 @@ impl Tool {
                         ui.colored_label(color, txt);
                     });
                     ui.label(ch.note);
-                    let picks = swgp2_tool::tool::wiki::best_picks(&self.wiki_catalog, ch.kind, 5);
+                    let picks = swgp2_tool::tool::wiki::best_picks(&self.wiki_catalog, ch.kind, ch.class_token, 5);
                     if picks.is_empty() {
                         ui.small(no_picks_msg);
                     } else {

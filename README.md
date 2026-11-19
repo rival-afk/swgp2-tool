@@ -4,7 +4,7 @@ All-in-one tool for **Super Woden GP 2** (ViJuDa, Unity + Mono).
 
 Single native binary. No runtime, no Python, no .NET required. Just run it:
 
-- **`swgp2-tool.exe`** — 7z-style GUI: white, simple, everything two clicks away
+- **`swgp2-tool.exe`** — simple white GUI: everything two clicks away
 - **`swgp2-tui.exe`** — the same save editor in a terminal
 
 No flags. Double-click and go.

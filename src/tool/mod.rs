@@ -2,6 +2,7 @@
 
 pub mod cars;
 pub mod catalog;
+pub mod events;
 pub mod game;
 pub mod reset;
 pub mod settings;
