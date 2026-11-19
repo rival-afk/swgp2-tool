@@ -7,7 +7,7 @@
 
 use std::ffi::c_void;
 use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 type Handle = *mut c_void;
 
@@ -434,6 +434,56 @@ pub fn list_modules(pid: u32) -> Result<Vec<ModuleInfo>, String> {
     }
     unsafe { CloseHandle(snap) };
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// mod install/uninstall + log reading
+// ---------------------------------------------------------------------------
+
+const MOD_DLL: &[u8] = include_bytes!("../../mod/Swgp2Mod.dll");
+
+/// Where the managed mod is installed to.
+pub fn mod_install_path() -> PathBuf {
+    std::env::var_os("APPDATA")
+        .map(|a| Path::new(&a).join("swgp2-tool").join("mod").join("Swgp2Mod.dll"))
+        .unwrap_or_else(|| PathBuf::from("Swgp2Mod.dll"))
+}
+
+fn mod_dir() -> PathBuf {
+    mod_install_path().parent().unwrap_or(Path::new(".")).to_path_buf()
+}
+
+/// Extract the embedded managed mod to %APPDATA%\swgp2-tool\mod\Swgp2Mod.dll.
+pub fn install_mod() -> Result<PathBuf, String> {
+    let dir = mod_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dst = mod_install_path();
+    std::fs::write(&dst, MOD_DLL).map_err(|e| format!("cannot write {}: {e}", dst.display()))?;
+    Ok(dst)
+}
+
+/// Remove the managed mod (the game must be restarted to fully unload it).
+pub fn uninstall_mod() -> Result<(), String> {
+    let dst = mod_install_path();
+    if dst.is_file() {
+        std::fs::remove_file(&dst).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Tail of %APPDATA%\swgp2-tool\mod.log (last `max_lines` lines).
+pub fn read_mod_log(max_lines: usize) -> String {
+    let path = match std::env::var_os("APPDATA") {
+        Some(a) => Path::new(&a).join("swgp2-tool").join("mod.log"),
+        None => return String::new(),
+    };
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(_) => return String::new(),
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].join("\n")
 }
 
 // ---------------------------------------------------------------------------

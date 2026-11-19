@@ -128,12 +128,17 @@ third-party filters. Ignore them; game classes use readable names.
   `mono_domain_assembly_open`, `mono_image_get_name`, `mono_class_from_name`,
   `mono_runtime_invoke`, `mono_thread_attach`, `mono_method_get_header`,
   `mono_class_get_method_from_name`, …) — plenty for native interop/injection.
-- The in-game mod uses **Unity IMGUI** (`OnGUI` window) rendered by the game
-  itself — no DX hook, no external window. Delivery: the tool injects
+- The in-game mod uses **Unity IMGUI** for an on-screen `OnGUI` overlay rendered by
+  the game itself — no DX hook, no external window. Delivery: the tool injects
   `swgp2_mod.dll` (native loader, `mod/loader/`), which loads `Swgp2Mod.dll`
   into the game's Mono domain and calls `Swgp2Mod.Entry.Main()`.
-  The menu talks to the game through ordinary `MainCar` fields (see
-  `mod/Swgp2Mod.cs`). Logging to `%APPDATA%\swgp2-tool\mod.log`.
+  The mod is keyboard-only by design: **F7** repair car (Life back to the
+  race-start snapshot), **F8**/**F9** increase/decrease the acceleration
+  multiplier by 0.5x (0.5..5.0), applied every frame to `MainCar.CarPower`;
+  the current multiplier appears in the center of the screen (white text,
+  ~3 seconds, then fades out). The player's car vs AI cars are told apart by
+  `Rival==false` (via `FindObjectsOfType(Type)`). Logging to
+  `%APPDATA%\swgp2-tool\mod.log`.
 - x86 Mono: `mono-2.0-bdwgc.dll` exports the whole embed API (1231 exports).
 
 ## Save files are the only writable game state we touch

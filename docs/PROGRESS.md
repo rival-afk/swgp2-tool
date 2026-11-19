@@ -65,38 +65,35 @@ GUI → `Cars` теперь: сетка 4 колонки × N страниц (12
 ### In-game меню (задача 2, часть b) — **РАБОТАЕТ, проверено**
 - `mod/Swgp2Mod.cs` → `mod/Swgp2Mod.dll` (**закоммичен**, собирается Roslyn'ом
   `E:\Soft\Visual Studio\MSBuild\Current\Bin\Roslyn\csc.exe` против
-  mscorlib/CoreModule/IMGUIModule/Assembly-CSharp игры).
-- Меню: окно OnGUI в Unity (F10/«SWGP2 ≡» в углу), слайдер Acceleration x1..5
-  (CarPower), Top speed (CarTopSpeed), **Freeze durability** (Life
-  замораживается на снапшоте), слайдер Durability 1..200%, Turbo, Refill fuel,
-  Repair. Выбор игроковой машины — через `FindObjectsOfType(Type)` + фильтр
-  `Rival==false`. Доступ к `MainCar` через reflection. Лог: `%APPDATA%\swgp2-tool\mod.log`.
+  mscorlib/CoreModule/IMGUIModule/InputLegacyModule/TextRenderingModule/Assembly-CSharp игры).
+- Меню НЕТ — только горячие клавиши (меню по просьбе пользователя убран):
+  **F7** — починить машину (Life восстанавливается до снапшота);
+  **F8** — ускорение +0.5x (до 5.0x);
+  **F9** — ускорение −0.5x (до 0.5x). Множитель применяется каждый кадр
+  к `MainCar.CarPower`. Белый текст по центру экрана, ~3 секунды, плавное
+  затухание (`F7` → «car repaired»). `Rival==false` фильтр для выбора
+  игроковой машины; reflection-доступ к полям.
 - Нативный загрузчик: `mod/loader/` (`swgp2-mod.dll`, cdylib, **ноль зависимостей**):
   DllMain → CreateThread → ждёт `mono-2.0-bdwgc.dll` → `mono_get_root_domain` →
   `mono_thread_attach` → `mono_domain_assembly_open(%APPDATA%\swgp2-tool\mod\Swgp2Mod.dll)`
   → класс `Swgp2Mod.Entry` → `mono_runtime_invoke(Main)`.
 - Инжектор: `src/tool/inject.rs` — поиск процесса, инжекция
   (CreateRemoteThread+LoadLibraryW на kernel32!LoadLibraryW), список модулей,
-  память (region walk, read/write, wildcard-поиск по шаблону).
-- **Проверено вживую**: игра (PID 7804) + `inject_test` → `mod loaded`,
-  игра стабильна, ошибок GUI в mod.log нет. Два инстанса, оба ок. Игра
+  память (region walk, read/write, wildcard-поиск по шаблону), install/uninstall
+  мода из встроенных байт, чтение хвоста mod.log.
+- **GUI секция "In-Game Mod"** — кнопки Install mod / Uninstall / Inject now,
+  статус игры, хвост mod.log.
+- **Проверено вживую**: игра (PID 8276/12128) + `inject_test` → `mod loaded`,
+  `car #15 attached (power 195, life 96)`, игра стабильна. Игра
   **Direct3D 11** (d3d11.dll + dxgi.dll), Mono 2.0 (`mono-2.0-bdwgc.dll`).
 - Сейв забекаплен: `%USERPROFILE%\AppData\LocalLow\ViJuDa\Super Woden GP 2\Save\Backups\Supersave0.pre-test-*.savbak`.
 - Поля `MainCar`: CarPower (ускорение), ActualPower, PowerOffset, CarTopSpeed,
   Life (прочность), LifeRestoreRate, Fuel, Turbo, SpeedMultiplier, Grip,
   ResistanceFactor, SlipStreamLevel, PlayerIndex, Rival (отличить игрока от ИИ).
-- **Осталось для полного цикла**: GUI-секция Inject (кнопки
-  Install/Inject/mod.log хвост) — не подключена; модификация доступна только
-  в этой сессии после инжекта (на каждый запуск игры — инжект заново).
 
 ## Осталось сделать (в порядке очереди)
 
-1. **GUI-секция Inject**: кнопки «Install mod» (записать embedded
-   `Swgp2Mod.dll` в `%APPDATA%\swgp2-tool\mod\`), «Inject mod now» (найти
-   запущенную игру, инжектнуть `swgp2_mod.dll` — брать рядом с exe или из
-   `%APPDATA%\swgp2-tool\mod\`), хвост `%APPDATA%\swgp2-tool\mod.log`,
-   статус "game running / mod loaded / error". `inject_mod_dll()` уже есть.
-2. **MCP-сервер** (`swgp2-mcp`, stdio JSON-RPC 2.0): общий набор инструментов
+1. **MCP-сервер** (`swgp2-mcp`, stdio JSON-RPC 2.0): общий набор инструментов
    «агент может делать с игрой то, что не задумывалось»: file_info/hexdump/
    strings/search, nrbf_probe/parse, save_get/set/dump/patch/backup/restore/
    verify, game_detect/info/launch, events_scan, wiki_*, process_find/modules/
@@ -104,7 +101,7 @@ GUI → `Cars` теперь: сетка 4 колонки × N страниц (12
    analyze_file, pe_info, map→glb, bot routes, wiki_best_cars. Реализация:
    `src/mcp.rs` (фреймворк: реестр, схемы, dispatch) +
    `src/bin/swgp2-mcp.rs` (main-loop).
-3. **Анализатор файлов (Rust)**:
+2. **Анализатор файлов (Rust)**:
    - `src/tool/unity.rs` — парсер Unity SerializedFile (format 22):
      заголовок BE-поля (`00 00 00 00 | 00 00 00 16 | dataOffset @20 | fileSize @28`),
      таблица объектов (offset/size/classId). **В процессе** — точный layout
@@ -118,10 +115,10 @@ GUI → `Cars` теперь: сетка 4 колонки × N страниц (12
      (тот же record-формат), экспорт JSON/LineStrip GLB.
    - Карта → .glb: Mesh-объекты (classId 43) + Transform-иерархия +
      GLB писатель. Проверка трианглов через trimesh (Python, pip).
-4. **Релизная сборка**: bump версии (Cargo.toml; Cargo.lock уже с поправкой
+3. **Релизная сборка**: bump версии (Cargo.toml; Cargo.lock уже с поправкой
    3.3.0→3.4.0), CHANGELOG, README, REPO_GRAPH, удалить tag-scratch
    артефакты; задокументировать `mod/` в README.
-5. **Проверки перед релизом**: `cargo test --release` зелёный, GUI запускается,
+4. **Проверки перед релизом**: `cargo test --release` зелёный, GUI запускается,
    инъекция мода не крашит игру, сейв не портится (patch_noop_is_byte_identical).
 
 ## Операционные заметки

@@ -61,6 +61,7 @@ enum Section {
     Skins,
     Wiki,
     Game,
+    Inject,
     Reset,
     About,
 }
@@ -73,6 +74,7 @@ impl Section {
             Section::Skins => "Car Skins",
             Section::Wiki => "Wiki",
             Section::Game => "Game",
+            Section::Inject => "In-Game Mod",
             Section::Reset => "Reset Saves",
             Section::About => "About",
         }
@@ -167,6 +169,10 @@ struct Tool {
     archives: Vec<reset::ResetArchive>,
     archive_sel: usize,
 
+    // --- inject / in-game mod
+    inject_status: String,
+    inject_log: String,
+
     // --- wiki
     wiki_tab: WikiTab,
     wiki_car_filter: String,
@@ -226,6 +232,8 @@ impl Tool {
             reset_armed: false,
             archives: Vec::new(),
             archive_sel: 0,
+            inject_status: String::new(),
+            inject_log: String::new(),
             wiki_tab: WikiTab::Cars,
             wiki_car_filter: String::new(),
             wiki_dealer_filter: String::new(),
@@ -660,7 +668,7 @@ impl eframe::App for Tool {
             .resizable(false)
             .show(ctx, |ui| {
                 ui.add_space(6.0);
-                for s in [Section::Save, Section::Cars, Section::Skins, Section::Wiki, Section::Game, Section::Reset, Section::About] {
+                for s in [Section::Save, Section::Cars, Section::Skins, Section::Wiki, Section::Game, Section::Inject, Section::Reset, Section::About] {
                     let selected = self.section == s;
                     let btn = egui::Button::new(egui::RichText::new(s.label()).size(15.0))
                         .min_size(egui::vec2(120.0, 34.0))
@@ -681,6 +689,7 @@ impl eframe::App for Tool {
             Section::Skins => self.skins_section(ui, ctx),
             Section::Wiki => self.wiki_section(ui, ctx),
             Section::Game => self.game_section(ui),
+            Section::Inject => self.inject_section(ui),
             Section::Reset => self.reset_section(ui),
             Section::About => self.about_section(ui),
         });
@@ -1290,6 +1299,90 @@ impl Tool {
                 ui.label("Set the game folder above to see details.");
             }
         }
+    }
+
+    // --------------------------------------------------- in-game mod (hotkeys)
+    fn inject_section(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(6.0);
+
+        ui.group(|ui| {
+            ui.strong("In-game mod - keyboard cheats");
+            ui.separator();
+            ui.label("F7  -  repair the car instantly");
+            ui.label("F8  -  acceleration +0.5x (up to 5.0x)");
+            ui.label("F9  -  acceleration -0.5x (down to 0.5x)");
+            ui.add_space(4.0);
+            ui.small("Current multiplier appears in the center of the screen for ~3 seconds (white text). Extracted from MainCar via Mono - no menu, no UI, just hotkeys.");
+        });
+
+        ui.add_space(8.0);
+
+        ui.group(|ui| {
+            ui.strong("Mod installation");
+            ui.separator();
+            let installed = swgp2_tool::tool::inject::mod_install_path().is_file();
+            ui.horizontal(|ui| {
+                if ui
+                    .button(if installed { "Reinstall / update" } else { "Install mod" })
+                    .clicked()
+                {
+                    match swgp2_tool::tool::inject::install_mod() {
+                        Ok(p) => self.msg(format!("mod installed to {}", p.display()), true),
+                        Err(e) => self.msg(format!("install failed: {e}"), false),
+                    }
+                }
+                if ui.button("Uninstall mod").clicked() {
+                    match swgp2_tool::tool::inject::uninstall_mod() {
+                        Ok(()) => self.msg("mod uninstalled - restart the game to fully unload".to_string(), true),
+                        Err(e) => self.msg(format!("uninstall failed: {e}"), false),
+                    }
+                }
+            });
+            ui.label(if installed {
+                format!("installed: {}", swgp2_tool::tool::inject::mod_install_path().display())
+            } else {
+                "not installed".to_string()
+            });
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let running = swgp2_tool::tool::inject::find_game_pid().is_some();
+                ui.label(if running { "game: running" } else { "game: not running" });
+                if ui.button("Inject now").clicked() {
+                    match swgp2_tool::tool::inject::inject_mod_dll() {
+                        Ok(msg) => {
+                            self.msg(msg.clone(), true);
+                            self.inject_log = swgp2_tool::tool::inject::read_mod_log(30);
+                        }
+                        Err(e) => self.msg(format!("inject failed: {e}"), false),
+                    }
+                }
+                if ui.button("Refresh log").clicked() {
+                    self.inject_log = swgp2_tool::tool::inject::read_mod_log(30);
+                }
+            });
+            ui.small("Inject into the RUNNING game when you're ready. Loading the mod a second time into a game that already has it will just skip it - the mod guards against double-loading.");
+        });
+
+        ui.add_space(8.0);
+
+        ui.group(|ui| {
+            ui.strong("mod.log");
+            ui.separator();
+            if self.inject_log.is_empty() {
+                self.inject_log = swgp2_tool::tool::inject::read_mod_log(30);
+            }
+            if self.inject_log.is_empty() {
+                ui.label("mod.log is empty - start the game and inject the mod.");
+            } else {
+                egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.inject_log.as_str())
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+            }
+        });
     }
 
     // --------------------------------------------------- wiki: cars page

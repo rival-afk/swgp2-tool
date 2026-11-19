@@ -1,21 +1,25 @@
-// SWGP2 Mod - in-game menu for Super Woden GP 2.
+// SWGP2 Mod - keyboard cheats for Super Woden GP 2.
 //
-// Built by the game itself (Unity IMGUI), no DX hooks, no external windows.
-// Injected via swgp2-mod (native loader). Toggle with the corner button or
-// the header "—" button. F10 also toggles the menu when the game accepts
-// legacy input.
+// No menu at all. Just:
+//   F7  - repair the car instantly
+//   F8  - increase acceleration multiplier (step +0.5)
+//   F9  - decrease acceleration multiplier (step -0.5)
 //
-// Field access on MainCar (Assembly-CSharp) goes through reflection so the
-// mod survives game patches that only rename/shuffle implementation details.
-// Missing fields are tolerated - the matching control just does nothing.
+// The multiplier is applied every frame to MainCar.CarPower (the car's
+// acceleration). A small label at the top-center shows the current
+// multiplier, or "car repaired" briefly after F7.
 //
-// Build (from the repo root, see mod\build.ps1):
-//   csc.exe /target:library /nowarn Swgp2Mod.cs /r:<Managed>\mscorlib.dll ^
+// Access to MainCar goes through reflection so the mod survives game patches
+// that only rename/shuffle implementation details. Missing fields/methods are
+// tolerated - the hotkey for a missing field just does nothing.
+//
+// Build (see mod\build.ps1):
+//   csc.exe /target:library /noconfig Swgp2Mod.cs /r:<Managed>\mscorlib.dll ^
 //     /r:UnityEngine.CoreModule.dll /r:UnityEngine.IMGUIModule.dll ^
+//     /r:UnityEngine.InputLegacyModule.dll /r:Unity.InputSystem.dll ^
 //     /r:Assembly-CSharp.dll /out:Swgp2Mod.dll
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEngine;
@@ -43,7 +47,7 @@ namespace Swgp2Mod
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.AddComponent<ModBehaviour>();
                 _loaded = true;
-                Log("mod loaded");
+                Log("mod loaded (F7 repair, F8 +, F9 -)");
             }
             catch (Exception e)
             {
@@ -66,17 +70,18 @@ namespace Swgp2Mod
 
     public class ModBehaviour : MonoBehaviour
     {
-        private bool _show = true;
-        private bool _freezeLife;
-        private bool _turbo;
-        private float _powerBoost = 1.0f;      // x multiplier on CarPower
-        private float _topSpeedBoost = 1.0f;   // x multiplier on CarTopSpeed
-        private float _lifePct = 100f;         // 1..200 % of snapshot Life
+        private const float MinMult = 0.5f, MaxMult = 5.0f, Step = 0.5f;
+        private const float MessageSeconds = 3.0f;
+        private const float FadeSeconds = 0.75f;
 
-        private object _car;                   // MainCar instance (cached)
-        private ulong _lifeSnapshot = ulong.MaxValue;
+        private float _mult = 1.0f;
+        private string _toast;          // transient message shown instead of the multiplier
+        private float _toastUntil;      // Time.time when the text fully disappears
+
+        private object _car;            // MainCar instance (cached)
         private long _powerSnapshot = long.MinValue;
-        private long _topSpeedSnapshot = long.MinValue;
+        private ulong _lifeSnapshot = ulong.MaxValue;
+        private bool _inputDisabledLogged;
 
         // ---------------------------------------------------------- lifecycle
         void Update()
@@ -84,25 +89,48 @@ namespace Swgp2Mod
             try
             {
                 RefreshCar();
-                if (_car != null && _freezeLife && _lifeSnapshot != ulong.MaxValue)
-                    SetField(_car, "Life", _lifeSnapshot);
+                if (Pressed(KeyCode.F7)) DoRepair();
+                if (Pressed(KeyCode.F8)) DoBoost(+Step);
+                if (Pressed(KeyCode.F9)) DoBoost(-Step);
+
+                if (_car != null && _powerSnapshot != long.MinValue && _powerSnapshot != 0)
+                    SetLong(_car, "CarPower", (long)(_powerSnapshot * _mult));
             }
             catch (Exception e) { Entry.Log("update: " + e.Message); }
         }
 
+        void DoRepair()
+        {
+            if (_car == null) return;
+            if (_lifeSnapshot != ulong.MaxValue)
+                SetField(_car, "Life", _lifeSnapshot);
+            _toast = "car repaired";
+            _toastUntil = Time.time + MessageSeconds;
+        }
+
+        void DoBoost(float delta)
+        {
+            float next = Math.Max(MinMult, Math.Min(MaxMult, _mult + delta));
+            if (Math.Abs(next - _mult) < 0.001f) return;
+            _mult = next;
+            _toast = null; // label shows the new multiplier
+            _toastUntil = Time.time + MessageSeconds;
+        }
+
+        // ---------------------------------------------------------- car lookup
         void RefreshCar()
         {
             if (_car != null && ((UnityEngine.Object)_car) != null)
                 return;
             _car = null;
+            _powerSnapshot = long.MinValue;
+            _lifeSnapshot = ulong.MaxValue;
             try
             {
                 var objType = typeof(UnityEngine.Object);
                 var carType = Type.GetType("MainCar, Assembly-CSharp");
                 if (carType == null) { Entry.Log("MainCar type not found"); return; }
 
-                // prefer FindObjectsOfType(Type) (all instances) so we can pick
-                // the player's car and not a rival's; fall back to FindObjectOfType.
                 var plural = objType.GetMethod("FindObjectsOfType", new[] { typeof(Type) });
                 if (plural != null)
                 {
@@ -116,7 +144,7 @@ namespace Swgp2Mod
                             var rival = GetField(o, "Rival");
                             if (rival is bool r && !r) { _car = o; break; }
                         }
-                        if (_car == null) _car = first; // no clear player car found - take the first
+                        if (_car == null) _car = first; // no clear player car - take the first
                     }
                 }
                 if (_car == null)
@@ -126,123 +154,66 @@ namespace Swgp2Mod
                         ? single.Invoke(null, new object[] { carType })
                         : objType.GetMethod("FindObjectOfType", new Type[0])?.MakeGenericMethod(carType).Invoke(null, null);
                 }
+
+                if (_car != null)
+                {
+                    _powerSnapshot = GetLong(_car, "CarPower") ?? long.MinValue;
+                    _lifeSnapshot = GetULong(_car, "Life") ?? ulong.MaxValue;
+                    Entry.Log($"car #{GetField(_car, "CarId")} attached (power {_powerSnapshot}, life {_lifeSnapshot})");
+                }
             }
             catch (Exception e)
             {
                 Entry.Log("car lookup failed: " + e.Message);
             }
-
-            if (_car != null)
-            {
-                SnapshotOnce();
-            }
         }
 
-        void SnapshotOnce()
-        {
-            _lifeSnapshot = GetULong(_car, "Life") ?? ulong.MaxValue;
-            _powerSnapshot = GetLong(_car, "CarPower") ?? long.MinValue;
-            _topSpeedSnapshot = GetLong(_car, "CarTopSpeed") ?? long.MinValue;
-        }
-
-        // ---------------------------------------------------------- UI
+        // ---------------------------------------------------------- overlay
         void OnGUI()
         {
             try
             {
-                RefreshCar();
-                if (!_show)
-                {
-                    // tiny always-available handle to re-open the menu
-                    if (GUI.Button(new Rect(Screen.width - 96, 8, 88, 24), "SWGP2 ≡"))
-                        _show = true;
-                    return;
-                }
+                float remain = _toastUntil - Time.time;
+                if (remain <= 0f) return; // nothing to show right now
+                float alpha = Mathf.Clamp01(remain / FadeSeconds); // fade-out in the last 0.75s
 
-                GUILayout.Window(0x5B6C, new Rect(Screen.width - 400, 30, 390, 360), DrawMenu, "SWGP2 Mod");
+                string text = _toast != null
+                    ? _toast
+                    : (_mult <= 1.0f ? "1.0 (default)" : _mult.ToString("0.0"));
+
+                var style = new GUIStyle(GUI.skin.label)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 30,
+                    normal = { textColor = new Color(1f, 1f, 1f, alpha) }
+                };
+                var rect = new Rect(Screen.width / 2 - 200, Screen.height / 2 - 24, 400, 48);
+                GUI.Label(rect, text, style);
             }
             catch (Exception e)
             {
                 Entry.Log("gui: " + e.Message);
-                _show = false;
             }
         }
 
-        void DrawMenu(int id)
+        // ----------------------------------------------------- input handling
+        bool Pressed(KeyCode legacy)
         {
-            GUILayout.BeginVertical();
-            GUILayout.Space(2);
-
-            if (_car == null)
+            try
             {
-                GUILayout.Label("Car not found - start a race first.");
-                GUILayout.Space(4);
-                if (GUILayout.Button("Hide (F10)")) _show = false;
-                GUILayout.EndVertical();
-                GUI.DragWindow();
-                return;
+                return UnityEngine.Input.GetKeyDown(legacy);
             }
-
-            // --- status line
-            string carId = GetField(_car, "CarId")?.ToString() ?? "?";
-            GUILayout.Label("Car #" + carId + "   Life " + LifeText());
-            GUILayout.Space(6);
-
-            // --- power (acceleration)
-            GUILayout.Label("Acceleration x" + _powerBoost.ToString("0.0"));
-            _powerBoost = GUILayout.HorizontalSlider(_powerBoost, 1.0f, 5.0f);
-            if (_powerSnapshot != long.MinValue && _powerSnapshot != 0)
-                SetLong(_car, "CarPower", (long)(_powerSnapshot * _powerBoost));
-
-            GUILayout.Space(6);
-            GUILayout.Label("Top speed x" + _topSpeedBoost.ToString("0.0"));
-            _topSpeedBoost = GUILayout.HorizontalSlider(_topSpeedBoost, 1.0f, 3.0f);
-            if (_topSpeedSnapshot != long.MinValue && _topSpeedSnapshot != 0)
-                SetLong(_car, "CarTopSpeed", (long)(_topSpeedSnapshot * _topSpeedBoost));
-
-            GUILayout.Space(6);
-
-            // --- durability
-            bool prevFreeze = _freezeLife;
-            _freezeLife = GUILayout.Toggle(_freezeLife, "Freeze durability");
-            if (_freezeLife != prevFreeze)
+            catch (Exception e)
             {
-                if (_freezeLife && _car != null)
-                    _lifeSnapshot = GetULong(_car, "Life") ?? _lifeSnapshot;
-                Entry.Log(_freezeLife ? "durability frozen" : "durability unfrozen");
+                // legacy input disabled by the game (new Input System only) -
+                // log once per session so we can tell from mod.log
+                if (!_inputDisabledLogged)
+                {
+                    Entry.Log("legacy Input disabled: " + e.Message);
+                    _inputDisabledLogged = true;
+                }
+                return false;
             }
-
-            GUILayout.Label("Durability " + _lifePct.ToString("0") + "%");
-            _lifePct = GUILayout.HorizontalSlider(_lifePct, 1f, 200f);
-            if (!_freezeLife && _lifeSnapshot != ulong.MaxValue)
-            {
-                ulong target = (ulong)((double)_lifeSnapshot * (_lifePct / 100.0));
-                SetField(_car, "Life", target);
-            }
-
-            if (GUILayout.Button("Repair to full"))
-            {
-                _lifePct = 200f;
-                _freezeLife = true;
-                if (_car != null)
-                    _lifeSnapshot = GetULong(_car, "Life") ?? _lifeSnapshot;
-            }
-
-            GUILayout.Space(6);
-
-            // --- extras
-            _turbo = GUILayout.Toggle(_turbo, "Turbo");
-            SetField(_car, "Turbo", _turbo);
-            if (GUILayout.Button("Refill fuel"))
-            {
-                var f = GetLong(_car, "Fuel") ?? 0;
-                SetLong(_car, "Fuel", f + 5000);
-            }
-
-            GUILayout.Space(8);
-            if (GUILayout.Button("Hide (F10)")) _show = false;
-            GUILayout.EndVertical();
-            GUI.DragWindow();
         }
 
         // -------------------------------------------------- field access glue
@@ -251,7 +222,8 @@ namespace Swgp2Mod
             var t = o.GetType();
             while (t != null)
             {
-                var f = t.GetField(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy);
+                var f = t.GetField(name,
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy);
                 if (f != null) return f;
                 t = t.BaseType;
             }
@@ -305,8 +277,6 @@ namespace Swgp2Mod
             }
             catch (Exception)
             {
-                // type mismatch - the field may be an enum or a different width;
-                // try a numeric coercion for integral-like fields
                 try
                 {
                     var t = f.FieldType;
@@ -321,12 +291,6 @@ namespace Swgp2Mod
         static void SetLong(object o, string name, long value)
         {
             SetField(o, name, value);
-        }
-
-        string LifeText()
-        {
-            var v = GetULong(_car, "Life");
-            return v.HasValue ? v.Value.ToString() : "?";
         }
     }
 }

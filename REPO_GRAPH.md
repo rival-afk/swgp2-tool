@@ -6,7 +6,7 @@ Everything save-related works on a parsed **Graph**; JSON is only a view/interch
 ```
 src/bin/swgp2-tool.rs  GUI (eframe/egui). run: `swgp2-tool`  (no args)
                         menu bar + toolbar(Load/Reload/Save) + left rail sections:
-                        Save Editor | Cars | Car Skins | Wiki | Game | Reset | About
+                        Save Editor | Cars | Car Skins | Wiki | Game | In-Game Mod | Reset | About
                         top toolbar Save buttons act on current save; quick cheats;
                         cars: 4-column paged card catalog (12/page) + skin preview;
                         Wiki: cars gallery (200 shop cars), championships (class-
