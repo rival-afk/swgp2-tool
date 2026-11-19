@@ -71,8 +71,15 @@ GUI → `Cars` теперь: сетка 4 колонки × N страниц (12
   **F8** — ускорение +0.5x (до 5.0x);
   **F9** — ускорение −0.5x (до 0.5x). Множитель применяется каждый кадр
   к `MainCar.CarPower`. Белый текст по центру экрана, ~3 секунды, плавное
-  затухание (`F7` → «car repaired»). `Rival==false` фильтр для выбора
-  игроковой машины; reflection-доступ к полям.
+  затухание (`F7` → «car repaired»).
+  **F6** — отключает лимиты всех гонок (MaxCV=9999, MinYear=1900,
+  MaxYear=65535, RestrictTags/RequiredTags/RequiredBrand → "",
+  ExclusiveAllowedCars → очистить) у всех загруженных `LeagueData`,
+  `WeekendData`, `RallyData`. Односторонне на сессию; рестарт игры возвращает
+  лимиты. `Rival==false` фильтр для выбора игроковой машины;
+  reflection-доступ к полям.
+- Кнопка **«Disable race filters»** в секции In-Game Mod — устанавливает мод
+  и инжектит в запущенную игру (лимиты снимутся сами, повторный F6 не нужен).
 - Нативный загрузчик: `mod/loader/` (`swgp2-mod.dll`, cdylib, **ноль зависимостей**):
   DllMain → CreateThread → ждёт `mono-2.0-bdwgc.dll` → `mono_get_root_domain` →
   `mono_thread_attach` → `mono_domain_assembly_open(%APPDATA%\swgp2-tool\mod\Swgp2Mod.dll)`

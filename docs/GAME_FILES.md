@@ -136,9 +136,11 @@ third-party filters. Ignore them; game classes use readable names.
   race-start snapshot), **F8**/**F9** increase/decrease the acceleration
   multiplier by 0.5x (0.5..5.0), applied every frame to `MainCar.CarPower`;
   the current multiplier appears in the center of the screen (white text,
-  ~3 seconds, then fades out). The player's car vs AI cars are told apart by
-  `Rival==false` (via `FindObjectsOfType(Type)`). Logging to
-  `%APPDATA%\swgp2-tool\mod.log`.
+  ~3 seconds, then fades out). **F6** disables race filters (MaxCV/Year/tags/
+  brand/exclusive-car restrictions cleared on every loaded `LeagueData`,
+  `WeekendData` and `RallyData` — one-way per session; restart to re-enable).
+  The player's car vs AI cars are told apart by `Rival==false`
+  (via `FindObjectsOfType(Type)`). Logging to `%APPDATA%\swgp2-tool\mod.log`.
 - x86 Mono: `mono-2.0-bdwgc.dll` exports the whole embed API (1231 exports).
 
 ## Save files are the only writable game state we touch

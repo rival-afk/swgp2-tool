@@ -1309,8 +1309,9 @@ impl Tool {
             ui.label("F7  -  repair the car instantly");
             ui.label("F8  -  acceleration +0.5x (up to 5.0x)");
             ui.label("F9  -  acceleration -0.5x (down to 0.5x)");
+            ui.label("F6  -  disable race filters (no CV/tag limits in ANY race)");
             ui.add_space(4.0);
-            ui.small("Current multiplier appears in the center of the screen for ~3 seconds (white text). Extracted from MainCar via Mono - no menu, no UI, just hotkeys.");
+            ui.small("Current multiplier appears at the center of the screen for ~3 seconds (white text). Race filters turn off automatically when the mod loads; F6 re-tries it in the active scene. Hotkeys are read by the game's legacy Input path.");
         });
 
         ui.add_space(8.0);
@@ -1354,10 +1355,20 @@ impl Tool {
                         Err(e) => self.msg(format!("inject failed: {e}"), false),
                     }
                 }
+                if ui.button("Disable race filters").clicked() {
+                    match swgp2_tool::tool::inject::inject_mod_dll() {
+                        Ok(msg) => {
+                            self.msg(format!("{msg} - race filters disabled in every race; restart the game to re-enable them"), true);
+                            self.inject_log = swgp2_tool::tool::inject::read_mod_log(30);
+                        }
+                        Err(e) => self.msg(format!("inject failed: {e}"), false),
+                    }
+                }
                 if ui.button("Refresh log").clicked() {
                     self.inject_log = swgp2_tool::tool::inject::read_mod_log(30);
                 }
             });
+            ui.small("Inject into the RUNNING game when you're ready. Re-install the mod whenever it's updated - a running game keeps the old code in memory. F6 re-applies race-filter disabling in the active scene.");
             ui.small("Inject into the RUNNING game when you're ready. Loading the mod a second time into a game that already has it will just skip it - the mod guards against double-loading.");
         });
 

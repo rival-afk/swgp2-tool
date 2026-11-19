@@ -4,22 +4,30 @@
 //   F7  - repair the car instantly
 //   F8  - increase acceleration multiplier (step +0.5)
 //   F9  - decrease acceleration multiplier (step -0.5)
+//   F6  - disable race filters (no CV/year/tag/dealership limits in any race)
 //
 // The multiplier is applied every frame to MainCar.CarPower (the car's
-// acceleration). A small label at the top-center shows the current
-// multiplier, or "car repaired" briefly after F7.
+// acceleration). A small label at the screen center shows the current
+// multiplier, or "car repaired" / "race filters disabled" briefly.
 //
-// Access to MainCar goes through reflection so the mod survives game patches
-// that only rename/shuffle implementation details. Missing fields/methods are
+// Race filters are disabled by clearing the restriction fields on the loaded
+// event data objects (LeagueData / WeekendData / RallyData): MaxCV, MinYear,
+// MaxYear, RestrictTags, RequiredTags, RequiredBrand, ExclusiveAllowedCars.
+// This is a one-way toggle for the whole game session; restart the game to
+// get the filters back.
+//
+// Access to game types goes through reflection so the mod survives game
+// patches that only rename/shuffle things. Missing fields/methods are
 // tolerated - the hotkey for a missing field just does nothing.
 //
 // Build (see mod\build.ps1):
 //   csc.exe /target:library /noconfig Swgp2Mod.cs /r:<Managed>\mscorlib.dll ^
 //     /r:UnityEngine.CoreModule.dll /r:UnityEngine.IMGUIModule.dll ^
-//     /r:UnityEngine.InputLegacyModule.dll /r:Unity.InputSystem.dll ^
+//     /r:UnityEngine.InputLegacyModule.dll /r:UnityEngine.TextRenderingModule.dll ^
 //     /r:Assembly-CSharp.dll /out:Swgp2Mod.dll
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEngine;
@@ -77,6 +85,9 @@ namespace Swgp2Mod
         private float _mult = 1.0f;
         private string _toast;          // transient message shown instead of the multiplier
         private float _toastUntil;      // Time.time when the text fully disappears
+        private bool _raceFiltersDisabled;
+        private float _nextFilterSweep;
+        private int _filtersLogCounter;
 
         private object _car;            // MainCar instance (cached)
         private long _powerSnapshot = long.MinValue;
@@ -92,9 +103,16 @@ namespace Swgp2Mod
                 if (Pressed(KeyCode.F7)) DoRepair();
                 if (Pressed(KeyCode.F8)) DoBoost(+Step);
                 if (Pressed(KeyCode.F9)) DoBoost(-Step);
+                if (Pressed(KeyCode.F6)) DisableRaceFilters(true);
 
                 if (_car != null && _powerSnapshot != long.MinValue && _powerSnapshot != 0)
                     SetLong(_car, "CarPower", (long)(_powerSnapshot * _mult));
+
+                if (Time.time >= _nextFilterSweep)
+                {
+                    _nextFilterSweep = Time.time + 0.5f;
+                    SweepRaceFilters();
+                }
             }
             catch (Exception e) { Entry.Log("update: " + e.Message); }
         }
@@ -115,6 +133,91 @@ namespace Swgp2Mod
             _mult = next;
             _toast = null; // label shows the new multiplier
             _toastUntil = Time.time + MessageSeconds;
+        }
+
+        // ---------------------------------------------------------- race filters
+        const int CVLimitDisabled = 9999, YearMin = 1900, YearMax = 65535;
+
+        void DisableRaceFilters(bool fromKey)
+        {
+            if (fromKey)
+            {
+                _raceFiltersDisabled = true;
+                _toast = "race filters disabled";
+                _toastUntil = Time.time + MessageSeconds;
+            }
+            // keep applying on a timer as well (scene reloads recreate event data)
+            SweepRaceFilters();
+        }
+
+        static Type GetTypeAny(string name)
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = asm.GetType(name);
+                if (t != null) return t;
+            }
+            return null;
+        }
+
+        static IEnumerable<UnityEngine.Object> FindAllOfType(Type t)
+        {
+            var objType = typeof(UnityEngine.Object);
+            var m = objType.GetMethod("FindObjectsOfType", new[] { typeof(Type) });
+            if (m == null) yield break;
+            object all;
+            try
+            {
+                all = m.Invoke(null, new object[] { t });
+            }
+            catch (Exception e)
+            {
+                Entry.Log("FindObjectsOfType(" + t.Name + ") failed: " + e.Message);
+                yield break;
+            }
+            if (all is System.Collections.IEnumerable en)
+                foreach (var o in en)
+                    if (o is UnityEngine.Object uo) yield return uo;
+        }
+
+        void SweepRaceFilters()
+        {
+            if (!_raceFiltersDisabled)
+            {
+                // first press or auto on load: disable once
+                _raceFiltersDisabled = true;
+            }
+            int touched = 0;
+            foreach (var tname in new[] { "LeagueData", "WeekendData", "RallyData" })
+            {
+                var t = GetTypeAny(tname);
+                if (t == null) continue;
+                foreach (var o in FindAllOfType(t))
+                {
+                    SetField(o, "MaxCV", (ushort)CVLimitDisabled);
+                    SetField(o, "MinYear", (ushort)YearMin);
+                    SetField(o, "MaxYear", (ushort)YearMax);
+                    SetField(o, "RestrictTags", string.Empty);
+                    SetField(o, "RequiredTags", string.Empty);
+                    SetField(o, "RequiredBrand", string.Empty);
+                    var exclusive = GetField(o, "ExclusiveAllowedCars");
+                    if (exclusive is System.Collections.IList list) list.Clear();
+                    touched++;
+                }
+            }
+            if (touched != _filtersLogCounter)
+            {
+                _filtersLogCounter = touched;
+                if (touched > 0)
+                {
+                    Entry.Log($"race filters disabled on {touched} data object(s)");
+                    if (_toast == null)
+                    {
+                        _toast = "race filters disabled";
+                        _toastUntil = Time.time + MessageSeconds;
+                    }
+                }
+            }
         }
 
         // ---------------------------------------------------------- car lookup

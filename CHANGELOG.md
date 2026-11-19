@@ -1,5 +1,48 @@
 # Changelog
 
+## 3.5.0 - 2026-11-19
+
+**New: in-game mod.** A small native helper `swgp2_mod.dll` is injected into
+the running game and loads `Swgp2Mod.dll` (built from `mod/Swgp2Mod.cs`,
+committed for convenience). No menu, no UI - pure keyboard cheats:
+
+- **F7** - instant repair (Life restored to the race-start snapshot)
+- **F8 / F9** - acceleration +/-0.5x (0.5x..5.0x), applied every frame to the
+  car's `CarPower`; white text with the current multiplier fades away at the
+  center of the screen (~3 seconds)
+- **F6** - disable race filters: clears CV/year/tag/dealership limits of all
+  loaded events (`LeagueData`/`WeekendData`/`RallyData`) at runtime; white
+  "race filters disabled" text. One-way per game session; restart to re-enable
+
+The mod loads via the game's own Mono runtime (embed API), zero DX hooks.
+Manage it from the new **In-Game Mod** section: Install / Uninstall / Inject,
+game-running status and a tail of `%APPDATA%\swgp2-tool\mod.log`.
+
+- **New MCP server** (`swgp2-mcp`, stdio JSON-RPC 2.0) with ~30 tools:
+  save get/set/dump/apply/apply-json/backup/restore/verify (mutating tools
+  refuse while the game is running), game info/launch, live level0 events
+  scan, wiki best-cars picks, catalog, file info/hexdump/strings/search/copy,
+  process/memory tools (find, modules, read/write/search with wildcards),
+  DLL injection and the mod install/inject/status helpers.
+- **File analyzer** (`analyze.rs`): magic-byte type detection (PE/NRBF/PNG/
+  TGA/JPG/ZIP/7z/Unity SerializedFile/...), entropy, ASCII/UTF-16 strings,
+  wildcard pattern search and a full PE parser (sections, exports, imports).
+- **Wiki is built live from the game's own files** (level0 parsed on the
+  fly): new *Weekends*, *Endurance* and *Rallies* pages; the Tracks page is
+  live too. Every event shows its restrictions (class/dealership/pilot/
+  weather) and per-class best-car picks ranked by official CV, then top
+  speed. Championship pages are now class-filtered (BTC/DTC/JTC).
+- **Cars section is a 4-column card catalog** (12/page) with skin previews,
+  filter and sort - replacing the flat table.
+- **Save editor**: every field now carries a hint (allowed values or numeric
+  range) in both the GUI and the TUI; the Advanced set-by-path box shows the
+  same hint for known paths (case-normalised for arrays).
+- **Game folder auto-detection** fixed: it honours the persisted choice from
+  `%APPDATA%\swgp2-tool\settings.json` and scans Downloads/Desktop/Documents
+  one level down (portable-game zip archives are found without setup).
+- **Safety**: `save_set`/`save_apply`/`save_restore` via MCP and the GUI
+  refuse to run while the game is running.
+
 ## 3.4.0 - 2026-11-18
 
 - **Wiki Cars page rebuilt**: now shows ALL 200 shop cars (from the game's own

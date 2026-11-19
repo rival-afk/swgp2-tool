@@ -217,7 +217,25 @@ pub fn parse_value(s: &str) -> Json {
 /// every byte the user didn't change stays byte-identical. Backs up first,
 /// then verifies by decrypting and re-parsing the written file and comparing
 /// its dump with the expected in-memory result.
+///
+/// Refuses to run while the game is running - the game overwrites the save
+/// on exit, so writing then is a silent no-op.
 pub fn patch_save(save_path: &Path, edits: &[(String, Json)]) -> Result<PathBuf, String> {
+    if crate::tool::inject::find_game_pid().is_some() {
+        return Err("the game is running - close it first, otherwise it will overwrite the save on exit".into());
+    }
+    patch_save_impl(save_path, edits)
+}
+
+/// Same as `patch_save` but without the "is the game running?" guard.
+/// For tests only - callers must guarantee it is safe (the game is closed,
+/// or the target file is a throwaway copy).
+#[doc(hidden)]
+pub fn patch_save_unchecked(save_path: &Path, edits: &[(String, Json)]) -> Result<PathBuf, String> {
+    patch_save_impl(save_path, edits)
+}
+
+fn patch_save_impl(save_path: &Path, edits: &[(String, Json)]) -> Result<PathBuf, String> {
     if edits.is_empty() {
         return Err("no edits to apply".into());
     }
