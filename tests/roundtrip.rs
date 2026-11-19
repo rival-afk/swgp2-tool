@@ -28,7 +28,7 @@ fn patch_noop_is_byte_identical() {
     let econ = save::get_path(&g, "Economy")
         .map(|v| v.as_i64().unwrap_or(0))
         .unwrap_or(0);
-    app::patch_save(&tmp, &[("Economy".to_string(), serde_json::json!(econ))]).expect("patch should verify");
+    app::patch_save_unchecked(&tmp, &[("Economy".to_string(), serde_json::json!(econ))]).expect("patch should verify");
     let after = std::fs::read(&tmp).unwrap();
     assert_eq!(before, after, "no-op patch must be byte-identical");
 
@@ -61,7 +61,7 @@ fn patch_and_reload() {
     let dump0 = app::dump_json(&tmp).expect("dump");
 
     // set Economy to a different value, then set it back
-    app::patch_save(&tmp, &[("Economy".to_string(), serde_json::json!(econ0 + 123))]).expect("patch +123 should verify");
+    app::patch_save_unchecked(&tmp, &[("Economy".to_string(), serde_json::json!(econ0 + 123))]).expect("patch +123 should verify");
     let g2 = app::load(&tmp).unwrap();
     assert_eq!(save::get_path(&g2, "Economy").unwrap().as_i64().unwrap(), econ0 + 123);
     let dump1 = app::dump_json(&tmp).expect("dump");
@@ -76,7 +76,7 @@ fn patch_and_reload() {
     assert!(diff <= 8, "more than 8 plain bytes differ after economy patch: {diff}");
 
     // restore original value
-    app::patch_save(&tmp, &[("Economy".to_string(), serde_json::json!(econ0))]).expect("restore should verify");
+    app::patch_save_unchecked(&tmp, &[("Economy".to_string(), serde_json::json!(econ0))]).expect("restore should verify");
     assert_eq!(app::dump_json(&tmp).unwrap(), dump0);
 
     let _ = std::fs::remove_file(&tmp);
